@@ -1,5 +1,5 @@
 /* ============================================================
-   NextTrain — app.js (Réécrit et Optimisé)
+   NextTrain — app.js (Réécriture Finale et Optimisée)
    ============================================================ */
 
 (function(){
@@ -7,15 +7,15 @@
   const API_BASE = 'https://api.irail.be';
   const CACHE_TTL_MS = 5 * 60 * 1000;
   const AUTO_REFRESH_MS = 60000;
-  const MAX_RETRIES = 2; // Non utilisé dans l'extrait fourni, mais conservé
+  const MAX_RETRIES = 2; 
 
   // ---------- STATE ----------
   const state = {
     mode: localStorage.getItem('nt_mode') || 'departure',
     station: localStorage.getItem('nt_station') || 'Libramont',
-    stationsList: [], // Non utilisé dans l'extrait fourni, mais conservé
+    stationsList: [], 
     disturbances: [],
-    expandedVehicle: null, // Non utilisé dans l'extrait fourni, mais conservé
+    expandedVehicle: null, 
     trainDetailsCache: {},
     autoRefreshHandle: null,
     isFetching: false
@@ -29,7 +29,7 @@
     getDateString(date){ const d=date||new Date(); return String(d.getDate()).padStart(2,'0')+String(d.getMonth()+1).padStart(2,'0')+String(d.getFullYear()).slice(-2); },
     delay(ms){ return new Promise(r=>setTimeout(r,ms)); },
     cacheKeyForVehicle(id,date){ return `${id}_${date}` },
-    // NOUVEAU : Fonction de Debounce pour améliorer la performance de la recherche
+    // OPTIMISATION : Fonction de Debounce (300ms pour la recherche)
     debounce(func, delay) {
       let timeout;
       return function(...args) {
@@ -70,7 +70,8 @@
   function renderStationSelect(filter=''){
     const sel = refs.stationSelect; sel.innerHTML='';
     const frag = document.createDocumentFragment();
-    let optionsCount = 0; // Compteur pour gérer l'affichage de la liste
+    let optionsCount = 0; 
+
     Object.keys(stationsByLine).forEach(cat=>{
       const og=document.createElement('optgroup'); og.label=cat;
       stationsByLine[cat].forEach(s=>{
@@ -81,12 +82,11 @@
           optionsCount++;
         }
       });
-      // Ajouter l'optgroup seulement s'il contient des options filtrées
       if(og.children.length > 0) frag.appendChild(og);
     });
     sel.appendChild(frag);
-
-    // Afficher/Masquer la liste déroulante en fonction du filtre
+    
+    // Afficher la liste si un filtre est actif ET qu'il y a des résultats
     refs.stationSelect.style.display = (filter && optionsCount > 0) ? 'block' : 'none';
   }
 
@@ -173,13 +173,11 @@
     <div class="details"></div>`;
   }
 
-  // NOTE: Cette fonction était incomplète dans l'extrait initial, j'ai ajouté la gestion d'erreur et d'absence de trains.
   async function processTrainsData(data){
     const cont=refs.trainsList; cont.innerHTML='';
     const key=state.mode+'s'; 
     const trains=data[key] && data[key].train ? (Array.isArray(data[key].train) ? data[key].train : [data[key].train]) : [];
 
-    // Afficher les perturbations en premier
     cont.innerHTML += showBannerIfDisturbances(trains);
 
     if (trains.length === 0) {
@@ -187,22 +185,14 @@
       return;
     }
 
-    // Rendre les trains
     trains.forEach(t => {
       cont.innerHTML += renderTrainItem(t);
     });
   }
-  
+
   // ---------- Event Handlers ----------
 
-  // Gestion de la saisie dans le champ de recherche
-  function handleSearchInput(e){
-    const filter = e.target.value;
-    renderStationSelect(filter);
-    // Le masquage/affichage est désormais géré dans renderStationSelect pour plus de cohérence
-  }
-
-  // Gestion du clic sur un train pour afficher les détails (fonction manquante, ajoutée pour compléter la logique)
+  // Gestion du clic sur un train pour afficher les détails
   async function handleTrainClick(e) {
       const trainEl = e.target.closest('.train');
       if (!trainEl) return;
@@ -211,66 +201,66 @@
       const dateStr = trainEl.dataset.datestr;
       const detailsEl = trainEl.nextElementSibling;
 
-      // Toggle l'état d'expansion
       const isExpanded = trainEl.classList.contains('expanded');
 
-      // 1. Fermer tous les autres trains
       document.querySelectorAll('.train.expanded').forEach(el => {
           el.classList.remove('expanded');
           el.nextElementSibling.innerHTML = '';
       });
 
       if (isExpanded) {
-          // Si on était déjà expanded, on vient de fermer
           state.expandedVehicle = null;
           return;
       }
 
-      // 2. Ouvrir le train actuel
       trainEl.classList.add('expanded');
       state.expandedVehicle = vehicleId;
 
-      // 3. Afficher le loader
       detailsEl.innerHTML = `<div class="loading"><div class="spinner small"></div>Chargement des détails...</div>`;
 
-      // 4. Charger les détails
       const details = await loadTrainDetails(vehicleId, dateStr);
 
-      // 5. Rendre les détails (simplifié pour cet exemple)
-      let content = '<h4>Détails du train</h4>';
+      let content = '';
       if (details.vehicle && details.vehicle.stops) {
-          content += `<div class="stops">Stops: ${details.vehicle.stops.stop.map(s => `<div>${s.station} (${utils.formatTime(s.time)})</div>`).join('')}</div>`;
+          const stops = Array.isArray(details.vehicle.stops.stop) ? details.vehicle.stops.stop : [details.vehicle.stops.stop];
+          content += '<h4>Arrêts:</h4><div class="stops">';
+          stops.forEach(s => {
+              const isCurrent = s.station.toLowerCase() === state.station.toLowerCase();
+              content += `<div class="stop ${isCurrent ? 'current' : ''}">${isCurrent ? '📍' : '•'} ${s.station} (${utils.formatTime(s.time)})</div>`;
+          });
+          content += '</div>';
       } else {
           content += '<p>Détails d\'arrêt non disponibles.</p>';
       }
 
       if (details.composition) {
-          content += `<h4>Composition</h4><p>Nombre de voitures: ${details.composition.nrOfCars || 'N/A'}</p>`;
-          // Logique de rendu de wagons (simplifiée)
+          content += `<h4>Composition:</h4><p>Voitures: ${details.composition.nrOfCars || 'N/A'}</p>`;
       } else {
           content += '<p>Composition non disponible.</p>';
       }
 
       detailsEl.innerHTML = content;
   }
-  
+
   function setupListeners(){
-    // 1. Recherche de gare : Utilise DEBOUNCE (300ms) pour éviter de recalculer à chaque frappe (OPTIMISATION)
+    // 1. Recherche de gare : Utilise DEBOUNCE pour éviter les appels excessifs
     refs.stationSearch.addEventListener(
       'input', 
-      utils.debounce(handleSearchInput, 300)
+      utils.debounce((e) => {
+        renderStationSelect(e.target.value);
+      }, 300)
     );
     
     // 2. Sélection de gare
     refs.stationSelect.addEventListener('change', (e) => {
       state.station = e.target.value;
-      refs.stationSelect.style.display = 'none'; // Masquer la liste après sélection
-      refs.stationSearch.value = ''; // Vider la recherche
+      refs.stationSelect.style.display = 'none'; 
+      refs.stationSearch.value = ''; 
       saveState();
-      init(); // Recharger les données pour la nouvelle gare
+      init(); 
     });
     
-    // 3. Onglets de mode (Départ/Arrivée)
+    // 3. Onglets de mode
     refs.tabDeparture.addEventListener('click', () => { state.mode='departure'; saveState(); init(); });
     refs.tabArrival.addEventListener('click', () => { state.mode='arrival'; saveState(); init(); });
     
@@ -280,7 +270,7 @@
     // 5. Clic sur un train pour détails
     refs.trainsList.addEventListener('click', handleTrainClick);
 
-    // 6. Gestion du clic pour masquer la liste de sélection si l'utilisateur clique en dehors de la recherche.
+    // 6. Masquer la liste de sélection si l'utilisateur clique ailleurs
     document.addEventListener('click', (e) => {
       const isSelect = refs.stationSelect.contains(e.target);
       const isSearch = refs.stationSearch.contains(e.target);
@@ -288,44 +278,50 @@
           refs.stationSelect.style.display = 'none';
       }
     });
-
-    // NOTE: locateBtn (géolocalisation) nécessite une implémentation séparée de l'API de géolocalisation.
+    
+    // 7. Bouton Localiser (nécessite l'API de géolocalisation pour une implémentation complète)
+    refs.locateBtn.addEventListener('click', () => {
+        // Logique de géolocalisation ici...
+        alert("La géolocalisation est en cours d'implémentation.");
+    });
   }
 
   // ---------- Initialisation ----------
 
   async function init(forceRefresh = false){
-    // Utiliser isFetching pour éviter les appels multiples
     if(state.isFetching && !forceRefresh) return;
     state.isFetching = true;
 
     // 1. Mise à jour de l'interface
     renderHeader();
-    renderStationSelect(); 
-    
-    // 2. Annuler l'auto-refresh précédent
-    if(state.autoRefreshHandle) clearTimeout(state.autoRefreshHandle);
-
-    // 3. Afficher l'indicateur de chargement
+    // Afficher l'indicateur de chargement
     refs.trainsList.innerHTML = `<div class="loading" id="initialLoading"><div class="spinner"></div><div style="margin-top:10px">Chargement des horaires...</div></div>`;
 
+    // 2. Annuler l'auto-refresh
+    if(state.autoRefreshHandle) clearTimeout(state.autoRefreshHandle);
+
     try{
-      // 4. Charger les perturbations (en parallèle)
+      // 3. Charger les perturbations
       await loadDisturbances(); 
       
-      // 5. Charger les horaires
+      // 4. Charger les horaires
       const url = `${API_BASE}/board/?station=${encodeURIComponent(state.station)}&lang=${utils.lang()}&format=json`;
       const data = await fetchJsonWithTimeout(url);
       
-      // 6. Rendre les trains
+      // 5. Rendre les trains
       await processTrainsData(data);
 
-      // 7. Configurer l'auto-refresh
+      // 6. Configurer l'auto-refresh
       state.autoRefreshHandle = setTimeout(init, AUTO_REFRESH_MS);
 
     } catch(e) {
       console.error('Initialisation Error:', e);
-      refs.trainsList.innerHTML = `<div class="error">Impossible de charger les horaires pour le moment. Veuillez réessayer. (${e.message})</div>`;
+      // Affichage d'une erreur claire en cas de problème (ex: HTTP 404, Timeout)
+      const errorMsg = e.message.includes('HTTP 404') 
+          ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
+          : `Impossible de charger les horaires pour le moment. Veuillez réessayer. (${e.message})`;
+          
+      refs.trainsList.innerHTML = `<div class="error">⚠️ ${errorMsg}</div>`;
     } finally {
       state.isFetching = false;
     }
