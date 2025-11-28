@@ -1,5 +1,5 @@
 /* ============================================================
-   NextTrain – app.js (Version Complète et Optimisée - v2)
+   NextTrain – app.js (Version Complète et Optimisée - v3)
    ============================================================ */
 
 (function(){
@@ -352,9 +352,9 @@
   
   const occupancy = this.renderOccupancy(train.occupancy);
   
-  // MODIFICATION ICI: Afficher uniquement la gare Terminus (Départ) ou Origine (Arrivée)
-  let routeText = '';
-  if (train.direction) {
+  // CORRECTION ICI: Afficher uniquement la gare Terminus (Départ) ou Origine (Arrivée)
+  let routeText = 'Destination inconnue';
+  if (train.direction && train.direction.name) {
     const mainStation = train.direction.name; // Terminus en Départ, Origine en Arrivée
     if (state.mode === 'departure') {
       routeText = `Vers ${mainStation}`; // Ex: Vers Liège-Guillemins
