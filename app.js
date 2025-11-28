@@ -1,5 +1,5 @@
 /* ============================================================
-   NextTrain – app.js (Version Complète et Optimisée - v6)
+   NextTrain – app.js (Version Complète et Optimisée - v7)
    ============================================================ */
 
 (function(){
