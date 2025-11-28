@@ -1,5 +1,5 @@
 /* ============================================================
-   NextTrain – app.js (Version Complète et Optimisée - v3)
+   NextTrain – app.js (Version Complète et Optimisée - v4)
    ============================================================ */
 
 (function(){
@@ -338,52 +338,69 @@
     },
 
   renderTrain(train) {
-  const time = Utils.formatTime(train.time);
-  const number = train.vehicle?.shortname || train.vehicle || '—';
-  const platform = train.platform || '—';
-  const delayMin = Math.floor(train.delay / 60);
-  const delayText = train.delay > 0 
-    ? `<div class="delay delayed">+${delayMin} min</div>`
-    : `<div class="delay on-time">À l'heure</div>`;
-  
-  const cancelled = train.canceled === '1' || 
-                   train.canceled === 1 || 
-                   train.canceled === true;
-  
-  const occupancy = this.renderOccupancy(train.occupancy);
-  
-  // CORRECTION ICI: Afficher uniquement la gare Terminus (Départ) ou Origine (Arrivée)
-  let routeText = 'Destination inconnue';
-  if (train.direction && train.direction.name) {
-    const mainStation = train.direction.name; // Terminus en Départ, Origine en Arrivée
-    if (state.mode === 'departure') {
-      routeText = `Vers ${mainStation}`; // Ex: Vers Liège-Guillemins
+    const time = Utils.formatTime(train.time);
+    const platform = train.platform || '—';
+    const delayMin = Math.floor(train.delay / 60);
+    const delayText = train.delay > 0 
+      ? `<div class="delay delayed">+${delayMin} min</div>`
+      : `<div class="delay on-time">À l'heure</div>`;
+    
+    const cancelled = train.canceled === '1' || 
+                      train.canceled === 1 || 
+                      train.canceled === true;
+    
+    const occupancy = this.renderOccupancy(train.occupancy);
+    
+    // CORRECTION #1: Afficher la Terminus/Origine au lieu de la gare sélectionnée
+    let routeText = 'Destination inconnue';
+    if (train.direction && train.direction.name) {
+      const mainStation = train.direction.name; // Terminus en Départ, Origine en Arrivée
+      if (state.mode === 'departure') {
+        routeText = `Vers ${mainStation}`; 
+      } else {
+        routeText = `Depuis ${mainStation}`; 
+      }
     } else {
-      routeText = `Depuis ${mainStation}`; // Ex: Depuis Bruxelles-Midi
+      routeText = `Gare: ${state.station}`; 
     }
-  } else {
-    routeText = `Gare: ${state.station}`; // Fallback, si direction non dispo
-  }
-  
-  const dateStr = Utils.getDateString(new Date(train.time * 1000));
+    
+    // CORRECTION #2: Extraire le numéro court du train.
+    // train.vehicle est le long ID (BE.NMBS.IC2112)
+    // train.vehicle.shortname est le court ID (IC2112) ou (S50)
+    let number = '—';
+    if (train.vehicle) {
+      // Priorité 1: shortname (ex: IC2112)
+      if (train.vehicle.shortname) {
+        number = train.vehicle.shortname;
+      } 
+      // Priorité 2: Extraire le dernier segment de l'ID long (ex: IC2112 de BE.NMBS.IC2112)
+      else {
+        const parts = train.vehicle.split('.');
+        if (parts.length > 0) {
+          number = parts[parts.length - 1];
+        }
+      }
+    }
+    
+    const dateStr = Utils.getDateString(new Date(train.time * 1000));
 
-  return `
-    <div class="train ${cancelled ? 'cancelled' : ''}" 
-         data-vehicle="${train.vehicle}" 
-         data-datestr="${dateStr}">
-      <div class="left">
-        <div class="train-number">${number} ${occupancy}</div>
-        <div class="route">${routeText}</div>
-            <div class="platform">Voie: ${platform}</div>
+    return `
+      <div class="train ${cancelled ? 'cancelled' : ''}" 
+           data-vehicle="${train.vehicle}" 
+           data-datestr="${dateStr}">
+        <div class="left">
+          <div class="train-number">${number} ${occupancy}</div>
+          <div class="route">${routeText}</div>
+              <div class="platform">Voie: ${platform}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="time">${time}</div>
+              ${delayText}
+            </div>
           </div>
-          <div style="text-align:right">
-            <div class="time">${time}</div>
-            ${delayText}
-          </div>
-        </div>
-        <div class="details"></div>
-      `;
-    },
+          <div class="details"></div>
+        `;
+      },
 
     renderTrainDetails(details, currentStation) {
       let html = '';
@@ -837,58 +854,4 @@
         state.disturbances = await API.getDisturbances();
         
         // Charger horaires
-        const data = await API.getStationBoard(state.station, state.mode);
-        
-        // Afficher les trains
-        await UI.renderTrainsList(data);
-
-        // Programmer le prochain refresh
-        state.autoRefreshHandle = setTimeout(
-          () => this.init(), 
-          CONFIG.AUTO_REFRESH
-        );
-
-      } catch (error) {
-        console.error('Erreur initialisation:', error);
-        
-        const message = error.message.includes('HTTP 404')
-          ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
-          : `Impossible de charger les horaires. Veuillez réessayer. (${error.message})`;
-        
-        UI.showError(message);
-      } finally {
-        state.isFetching = false;
-      }
-    },
-
-    async start() {
-      this.setupListeners();
-      
-      // Démarrer le chargement initial
-      const initPromise = this.init();
-      
-      // En parallèle, essayer la géolocalisation
-      const geolocated = await this.tryGeolocation();
-      
-      // Si géolocalisé, relancer avec la nouvelle station
-      if (geolocated) {
-        await this.init(true);
-      } else {
-        await initPromise;
-      }
-    }
-  };
-
-  // ---------- DÉMARRAGE ----------
-  App.start();
-
-})();
-
-// Enregistrement du Service Worker pour PWA
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js')
-      .then(reg => console.log('Service Worker enregistré'))
-      .catch(err => console.log('Erreur Service Worker:', err));
-  });
-}
+        const data = await API.getStationBoard(state
