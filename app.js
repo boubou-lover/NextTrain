@@ -389,78 +389,72 @@
       `;
     },
 
-    renderTrain(train) {
-      const time = Utils.formatTime(train.time);
-      const platform = train.platform || '—';
-      const delayMin = Math.floor(train.delay / 60);
-      const delayText = train.delay > 0 
-        ? `<div class="delay delayed">+${delayMin} min</div>`
-        : `<div class="delay on-time">À l'heure</div>`;
-      
-      const cancelled = train.canceled === '1' || 
-                        train.canceled === 1 || 
-                        train.canceled === true;
-      
-      const occupancy = this.renderOccupancy(train.occupancy);
-      
-      let mainStationName = null;
-      const potentialSources = [
-        train.direction?.name,
-        train.stationinfo?.standardname,
-        train.stationInfo?.name,
-        train.name?.split(' ')[1]
-      ].filter(n => n);
-      
-      for (const source of potentialSources) {
-        const currentStationNormalized = Utils.normalize(state.station);
-        const sourceNormalized = Utils.normalize(source);
-        if (sourceNormalized !== currentStationNormalized) {
-          mainStationName = source;
-          break; 
-        }
-      }
-      
-      let routeText = 'Destination inconnue';
+   renderTrainDetails(details, currentStation) {
+  let html = '';
 
-      if (mainStationName) {
-        routeText = state.mode === 'departure'
-          ? `Vers ${mainStationName}`
-          : `Depuis ${mainStationName}`;
-      } else {
-        routeText = `Gare: ${state.station} (INFO API MANQUANTE ❌ )`; 
-      }
-      
-      let number = '—';
-      if (train.vehicle) {
-        if (train.vehicle.shortname) {
-          number = train.vehicle.shortname;
-        } else if (typeof train.vehicle === 'string') {
-          const parts = train.vehicle.split('.');
-          if (parts.length > 0) {
-            number = parts[parts.length - 1];
-          }
-        }
-      }
-      
-      const dateStr = Utils.getDateString(new Date(train.time * 1000));
+  if (details.vehicle && details.vehicle.stops) {
+    const stopsData = details.vehicle.stops.stop;
+    const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
 
-      return `
-        <div class="train ${cancelled ? 'cancelled' : ''}" 
-             data-vehicle="${train.vehicle}" 
-             data-datestr="${dateStr}">
-          <div class="left">
-            <div class="train-number">${number} ${occupancy}</div>
-            <div class="route">${routeText}</div>
-            <div class="platform">Voie: ${platform}</div>
-          </div>
-          <div style="text-align:right">
-            <div class="time">${time}</div>
-            ${delayText}
+    const now = Utils.nowSeconds();
+
+    let lastPassedIndex = -1;
+    stops.forEach((stop, index) => {
+      const stopTime = parseInt(stop.time);
+      const stopDelay = parseInt(stop.delay || 0);
+      const actualTime = stopTime + stopDelay;
+      if (actualTime <= now) lastPassedIndex = index;
+    });
+
+    html += '<h4>Itinéraire</h4><div class="metro-line">';
+
+    stops.forEach((stop, index) => {
+      const isCurrent = stop.station.toLowerCase() === currentStation.toLowerCase();
+      const isFirst = index === 0;
+      const isLast = index === stops.length - 1;
+
+      const isTrainHere = index === lastPassedIndex;
+      const isPassed = index < lastPassedIndex;
+
+      const delay = parseInt(stop.delay || 0);
+      const delayMin = Math.floor(delay / 60);
+      const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
+      const isCanceled = stop.canceled === '1' || stop.canceled === 1;
+      const cancelClass = isCanceled ? 'canceled' : '';
+
+      const platform = stop.platform ? ` <span class="stop-platform">Voie ${stop.platform}</span>` : '';
+
+      let status = '';
+      if (isTrainHere) {
+        status = ' <span class="train-here">Train ici</span>';
+      } else if (isPassed) {
+        status = ' <span class="train-passed">Train parti</span>';
+      }
+
+      html += `
+        <div class="metro-stop ${isCurrent ? 'current' : ''} ${isFirst ? 'first' : ''} ${isLast ? 'last' : ''} ${cancelClass} ${isTrainHere ? 'train-position' : ''}">
+          <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
+          <div class="metro-info">
+            <div class="metro-station">
+              ${stop.station}
+              ${status}
+              ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}
+              ${platform}
+            </div>
+            <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
           </div>
         </div>
-        <div class="details"></div>
       `;
-    },
+    });
+
+    html += '</div>';
+  } else {
+    html += '<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>';
+  }
+
+  return html;
+},
+
 
     renderTrainDetails(details, currentStation) {
       let html = '';

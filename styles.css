@@ -327,6 +327,14 @@ button[disabled], .btn[disabled]{
   margin-left:6px;
   border:1px solid #10b981;
 }
+.train-passed {
+  background: #64748b;
+  color: white;
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
 
 /* ---------- Composition (vue train horizontal) ---------- */
 .train-composition{
