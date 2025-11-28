@@ -1,47 +1,137 @@
-/* ============================================================
-   NextTrain — app.js (Réécriture Finale et Optimisée)
+// ---------- STATIONS (sera chargé depuis l'API) ----------
+  const STATIONS = {};/* ============================================================
+   NextTrain – app.js (Version Complète et Optimisée)
    ============================================================ */
 
 (function(){
-  // ---------- CONFIG ----------
-  const API_BASE = 'https://api.irail.be';
-  const CACHE_TTL_MS = 5 * 60 * 1000;
-  const AUTO_REFRESH_MS = 60000;
-  const MAX_RETRIES = 2; 
+  // ---------- CONFIGURATION ----------
+  const CONFIG = {
+    API_BASE: 'https://api.irail.be',
+    CACHE_TTL: 5 * 60 * 1000,
+    AUTO_REFRESH: 60000,
+    DEBOUNCE_DELAY: 300,
+    FETCH_TIMEOUT: 7000
+  };
 
-  // ---------- STATE ----------
+  // ---------- ÉTAT GLOBAL ----------
   const state = {
     mode: localStorage.getItem('nt_mode') || 'departure',
     station: localStorage.getItem('nt_station') || 'Libramont',
-    stationsList: [], 
+    allStations: [], // Liste complète chargée depuis l'API
     disturbances: [],
-    expandedVehicle: null, 
+    expandedVehicle: null,
     trainDetailsCache: {},
     autoRefreshHandle: null,
     isFetching: false
   };
 
-  // ---------- Utils ----------
-  const utils = {
-    lang(){ const nav = navigator.language || 'fr-BE'; return nav.startsWith('fr') ? 'fr' : 'en'; },
-    nowSec(){ return Math.floor(Date.now()/1000) },
-    formatTime(ts){ const d=new Date(ts*1000); return d.toLocaleTimeString('fr-BE',{hour:'2-digit',minute:'2-digit'}) },
-    getDateString(date){ const d=date||new Date(); return String(d.getDate()).padStart(2,'0')+String(d.getMonth()+1).padStart(2,'0')+String(d.getFullYear()).slice(-2); },
-    delay(ms){ return new Promise(r=>setTimeout(r,ms)); },
-    cacheKeyForVehicle(id,date){ return `${id}_${date}` },
-    // OPTIMISATION : Fonction de Debounce (300ms pour la recherche)
+  // ---------- STATIONS PAR LIGNE ----------
+  const STATIONS = {
+    'Bruxelles': [
+      'Bruxelles-Midi', 'Bruxelles-Central', 'Bruxelles-Nord', 
+      'Bruxelles-Luxembourg', 'Bruxelles-Schuman', 'Bruxelles-Chapelle',
+      'Bruxelles-Ouest', 'Etterbeek', 'Schaerbeek', 'Berchem-Sainte-Agathe'
+    ],
+    'Brabant Flamand': [
+      'Leuven', 'Aarschot', 'Diest', 'Tienen', 'Landen', 'Herent',
+      'Haacht', 'Rotselaar', 'Kessel-Lo', 'Heverlee', 'Oud-Heverlee',
+      'Korbeek-Lo', 'Neerijse', 'Loonbeek', 'Wilsele'
+    ],
+    'Brabant Wallon': [
+      'Wavre', 'Louvain-la-Neuve', 'Ottignies', 'Braine-l\'Alleud',
+      'Waterloo', 'Rixensart', 'Genval', 'La Hulpe', 'Profondsart',
+      'Bierges-Walibi', 'Limal', 'Court-Saint-Etienne'
+    ],
+    'Anvers': [
+      'Antwerpen-Centraal', 'Antwerpen-Berchem', 'Antwerpen-Zuid',
+      'Mechelen', 'Lier', 'Heist-op-den-Berg', 'Duffel', 'Kontich',
+      'Mortsel', 'Puurs', 'Willebroek'
+    ],
+    'Flandre Occidentale': [
+      'Bruges', 'Oostende', 'Kortrijk', 'Roeselare', 'Izegem',
+      'De Panne', 'Knokke', 'Blankenberge', 'Veurne', 'Diksmuide',
+      'Torhout', 'Waregem', 'Wielsbeke', 'Harelbeke'
+    ],
+    'Flandre Orientale': [
+      'Gent-Sint-Pieters', 'Aalst', 'Dendermonde', 'Sint-Niklaas',
+      'Lokeren', 'Wetteren', 'Oudenaarde', 'Ronse', 'Geraardsbergen',
+      'Zottegem', 'Ninove', 'Eeklo', 'Zelzate', 'Melle'
+    ],
+    'Limbourg': [
+      'Hasselt', 'Genk', 'Sint-Truiden', 'Tongeren', 'Bilzen',
+      'Bree', 'Lommel', 'Mol', 'Beringen', 'Diepenbeek'
+    ],
+    'Liège': [
+      'Liège-Guillemins', 'Liège-Palais', 'Verviers-Central', 'Seraing',
+      'Herstal', 'Ans', 'Flémalle-Haute', 'Angleur', 'Chênée',
+      'Pepinster', 'Spa', 'Trooz', 'Bressoux', 'Kinkempois',
+      'Sclessin', 'Jemeppe-sur-Meuse', 'Engis', 'Hermalle-sous-Argenteau'
+    ],
+    'Namur': [
+      'Namur', 'Ciney', 'Dinant', 'Gembloux', 'Marloie', 'Jemelle',
+      'Assesse', 'Spy', 'Tamines', 'Andenne', 'Jambes',
+      'Dave', 'Yvoir', 'Spontin', 'Godinne', 'Anhée'
+    ],
+    'Hainaut': [
+      'Mons', 'Charleroi-Sud', 'Tournai', 'Mouscron', 'La Louvière-Sud',
+      'Braine-le-Comte', 'Ath', 'Binche', 'Manage', 'Jemappes',
+      'Quévy', 'Soignies', 'Lessines', 'Leuze', 'Enghien',
+      'Marchienne-au-Pont', 'Châtelet', 'Farciennes', 'Montignies-sur-Sambre',
+      'Gosselies', 'Fleurus', 'Jumet', 'Frameries', 'Quiévrain',
+      'Boussu', 'Saint-Ghislain', 'Péruwelz', 'Silly', 'Comines'
+    ],
+    'Luxembourg': [
+      'Libramont', 'Arlon', 'Neufchâteau', 'Virton', 'Bertrix',
+      'Marche-en-Famenne', 'Bastogne', 'Gouvy', 'Marbehan',
+      'Habay', 'Florenville', 'Stockem', 'Athus', 'Rodange',
+      'Poix-Saint-Hubert', 'Barvaux', 'Melreux-Hotton'
+    ],
+    'Autres connexions': [
+      'Luxembourg', 'Maastricht', 'Roosendaal', 'Essen', 'Lille-Flandres'
+    ]
+  };
+
+  // ---------- UTILITAIRES ----------
+  const Utils = {
+    lang() {
+      const nav = navigator.language || 'fr-BE';
+      return nav.startsWith('fr') ? 'fr' : 'en';
+    },
+
+    nowSeconds() {
+      return Math.floor(Date.now() / 1000);
+    },
+
+    formatTime(timestamp) {
+      const date = new Date(timestamp * 1000);
+      return date.toLocaleTimeString('fr-BE', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    },
+
+    getDateString(date = new Date()) {
+      const d = String(date.getDate()).padStart(2, '0');
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const y = String(date.getFullYear()).slice(-2);
+      return `${d}${m}${y}`;
+    },
+
     debounce(func, delay) {
       let timeout;
       return function(...args) {
-        const context = this;
         clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(context, args), delay);
+        timeout = setTimeout(() => func.apply(this, args), delay);
       };
+    },
+
+    cacheKey(vehicleId, dateStr) {
+      return `${vehicleId}_${dateStr}`;
     }
   };
 
-  // ---------- DOM refs ----------
-  const refs = {
+  // ---------- RÉFÉRENCES DOM ----------
+  const DOM = {
     stationNameText: document.getElementById('stationNameText'),
     stationSelect: document.getElementById('stationSelect'),
     stationSearch: document.getElementById('stationSearch'),
@@ -52,283 +142,596 @@
     refreshBtn: document.getElementById('refreshBtn')
   };
 
-  // ---------- Stations list ----------
-  const stationsByLine = {
-    'Ligne L162 (Luxembourg-Bruxelles)': [ 'Libramont','Arlon','Neufchâteau','Jemelle','Marloie','Ciney','Namur','Luxembourg' ],
-    'Ligne L161 (Bruxelles-Namur)': [ 'Bruxelles-Luxembourg','Ottignies','Gembloux','Namur' ],
-    'Ligne L34 (Liège)': [ 'Liège-Guillemins' ],
-    'Autres gares IC': [ 'Bruxelles-Midi','Bruxelles-Central','Bruxelles-Nord','Antwerpen-Centraal','Gent-Sint-Pieters','Charleroi-Sud','Bruges','Leuven','Mons','Tournai','Mechelen','Hasselt','Kortrijk','Oostende' ]
+  // ---------- GESTION DU CACHE ----------
+  const Cache = {
+    get(key) {
+      const cached = state.trainDetailsCache[key];
+      if (!cached) return null;
+      
+      if (Date.now() - cached.timestamp > CONFIG.CACHE_TTL) {
+        delete state.trainDetailsCache[key];
+        return null;
+      }
+      
+      return cached.data;
+    },
+
+    set(key, data) {
+      state.trainDetailsCache[key] = {
+        timestamp: Date.now(),
+        data: data
+      };
+    }
   };
 
-  // ---------- Render helpers ----------
-  function setActiveTab(){
-    refs.tabDeparture.classList.toggle('active', state.mode==='departure');
-    refs.tabArrival.classList.toggle('active', state.mode==='arrival');
-  }
-  function saveState(){ localStorage.setItem('nt_mode',state.mode); localStorage.setItem('nt_station',state.station); }
+  // ---------- API ----------
+  const API = {
+    async fetchWithTimeout(url, options = {}) {
+      const timeout = options.timeout || CONFIG.FETCH_TIMEOUT;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  function renderStationSelect(filter=''){
-    const sel = refs.stationSelect; sel.innerHTML='';
-    const frag = document.createDocumentFragment();
-    let optionsCount = 0; 
-
-    Object.keys(stationsByLine).forEach(cat=>{
-      const og=document.createElement('optgroup'); og.label=cat;
-      stationsByLine[cat].forEach(s=>{
-        if(!filter || s.toLowerCase().includes(filter.toLowerCase())){
-          const o=document.createElement('option'); o.value=s; o.textContent=s;
-          if(s===state.station) o.selected=true;
-          og.appendChild(o);
-          optionsCount++;
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
-      });
-      if(og.children.length > 0) frag.appendChild(og);
-    });
-    sel.appendChild(frag);
-    
-    // Afficher la liste si un filtre est actif ET qu'il y a des résultats
-    refs.stationSelect.style.display = (filter && optionsCount > 0) ? 'block' : 'none';
-  }
+        
+        return await response.json();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    },
 
-  function renderHeader(){ refs.stationNameText.textContent = state.station; setActiveTab(); }
+    async getDisturbances() {
+      try {
+        const url = `${CONFIG.API_BASE}/disturbances/?format=json&lang=${Utils.lang()}`;
+        const data = await this.fetchWithTimeout(url, { timeout: 5000 });
+        return data.disturbance || [];
+      } catch (error) {
+        console.warn('Erreur chargement perturbations:', error);
+        return [];
+      }
+    },
 
-  // ---------- Networking ----------
-  async function fetchJsonWithTimeout(url,{timeout=7000}={}){
-    const controller=new AbortController(); const id=setTimeout(()=>controller.abort(),timeout);
-    try{
-      const r=await fetch(url,{signal:controller.signal}); clearTimeout(id);
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      return await r.json();
-    }catch(e){ clearTimeout(id); throw e; }
-  }
+    async getAllStations() {
+      try {
+        const url = `${CONFIG.API_BASE}/stations/?format=json&lang=${Utils.lang()}`;
+        const data = await this.fetchWithTimeout(url, { timeout: 10000 });
+        return data.station || [];
+      } catch (error) {
+        console.warn('Erreur chargement stations:', error);
+        return [];
+      }
+    },
 
-  function getCachedVehicle(key){
-    const c=state.trainDetailsCache[key];
-    if(!c) return null;
-    if(Date.now()-c.ts > CACHE_TTL_MS){ delete state.trainDetailsCache[key]; return null; }
-    return c.data;
-  }
-  function setCachedVehicle(key,data){ state.trainDetailsCache[key]={ts:Date.now(),data}; }
+    async getStationBoard(station, mode) {
+      const arrdep = mode === 'arrival' ? 'ARR' : 'DEP';
+      const url = `${CONFIG.API_BASE}/liveboard/?station=${encodeURIComponent(station)}&arrdep=${arrdep}&lang=${Utils.lang()}&format=json`;
+      return await this.fetchWithTimeout(url);
+    },
 
-  // ---------- Disturbances ----------
-  async function loadDisturbances(){
-    try{
-      const d=await fetchJsonWithTimeout(`${API_BASE}/disturbances/?format=json&lang=${utils.lang()}`,{timeout:5000});
-      state.disturbances=d.disturbance||[];
-    }catch(e){ console.warn('no disturbances',e); }
-  }
+    async getVehicleDetails(vehicleId, dateStr) {
+      const cacheKey = Utils.cacheKey(vehicleId, dateStr);
+      const cached = Cache.get(cacheKey);
+      
+      if (cached) return cached;
 
-  // ---------- Train details & composition ----------
-  async function loadTrainDetails(vehicleId,dateStr){
-    const key=utils.cacheKeyForVehicle(vehicleId,dateStr);
-    const cached=getCachedVehicle(key); if(cached) return cached;
-    try{
-      const [vehicle,composition] = await Promise.all([
-        fetchJsonWithTimeout(`${API_BASE}/vehicle/?id=${encodeURIComponent(vehicleId)}&format=json&lang=${utils.lang()}&date=${dateStr}`).catch(()=>null),
-        fetchJsonWithTimeout(`${API_BASE}/composition/?id=${encodeURIComponent(vehicleId)}&format=json&date=${dateStr}`).catch(()=>null)
-      ]);
-      const det={vehicle,composition}; setCachedVehicle(key,det); return det;
-    }catch(e){ console.error('details error',e); return {vehicle:null,composition:null}; }
-  }
+      try {
+        const [vehicle, composition] = await Promise.all([
+          this.fetchWithTimeout(
+            `${CONFIG.API_BASE}/vehicle/?id=${encodeURIComponent(vehicleId)}&format=json&lang=${Utils.lang()}&date=${dateStr}`
+          ).catch(() => null),
+          this.fetchWithTimeout(
+            `${CONFIG.API_BASE}/composition/?id=${encodeURIComponent(vehicleId)}&format=json&date=${dateStr}`
+          ).catch(() => null)
+        ]);
 
-  // ---------- Rendering trains ----------
-  function renderOccupancyBadge(occ){
-    if(!occ||!occ.name||occ.name==='unknown') return '';
-    const name=occ.name;
-    const cls=name==='high'?'occ-high':(name==='medium'?'occ-medium':'');
-    const pct=name==='high'?0.95:(name==='medium'?0.6:0.25);
-    return `<span class="occupancy ${cls}" title="${name}"><span class="occ-bar"><span class="occ-fill" style="width:${pct*100}%"></span></span></span>`;
-  }
-
-  function showBannerIfDisturbances(trains){
-    const d=state.disturbances||[];
-    if(!d.length) return '';
-    const rel=d.filter(x=>(x.title||'').toLowerCase().includes(state.station.toLowerCase())||(x.description||'').toLowerCase().includes(state.station.toLowerCase())).slice(0,3);
-    if(!rel.length) return '';
-    return `<div class="banner"><strong>⚠️ Perturbations</strong><div style="margin-top:6px">${rel.map(r=>r.title).join('<br>')}</div></div>`;
-  }
-
-  function renderTrainItem(t){
-    const time=utils.formatTime(t.time);
-    const num=(t.vehicleinfo&&t.vehicleinfo.shortname)||t.vehicle||'—';
-    const plat=t.platform||'—';
-    const delay=t.delay>0?`<div class=\"delay\">+${Math.floor(t.delay/60)} min</div>`:`<div class=\"delay\">À l'heure</div>`;
-    const cancelled=(t.canceled==='1'||t.canceled===1||t.canceled===true);
-    const occ=renderOccupancyBadge(t.occupancy);
-    const direction=t.direction? (state.mode==='departure'?`→ ${t.direction.name}`:`${t.direction.name} →`):'';
-    const dateStr=utils.getDateString(new Date(t.time*1000));
-
-    return `
-    <div class="train ${cancelled?'cancelled':''}" data-vehicle="${t.vehicle}" data-datestr="${dateStr}">
-      <div class="left">
-        <div class="train-number">${num} ${occ}</div>
-        <div class="route">${state.mode==='departure'?`${state.station} ${direction}`:`${direction} ${state.station}`}</div>
-        <div class="platform">Quai: ${plat}</div>
-      </div>
-      <div style="text-align:right">
-        <div class="time">${time}</div>
-        ${delay}
-      </div>
-    </div>
-    <div class="details"></div>`;
-  }
-
-  async function processTrainsData(data){
-    const cont=refs.trainsList; cont.innerHTML='';
-    const key=state.mode+'s'; 
-    const trains=data[key] && data[key].train ? (Array.isArray(data[key].train) ? data[key].train : [data[key].train]) : [];
-
-    cont.innerHTML += showBannerIfDisturbances(trains);
-
-    if (trains.length === 0) {
-      cont.innerHTML += `<div class="info">Aucun ${state.mode === 'departure' ? 'départ' : 'arrivée'} prévu pour la gare de ${state.station}.</div>`;
-      return;
+        const details = { vehicle, composition };
+        Cache.set(cacheKey, details);
+        return details;
+      } catch (error) {
+        console.error('Erreur détails train:', error);
+        return { vehicle: null, composition: null };
+      }
     }
+  };
 
-    trains.forEach(t => {
-      cont.innerHTML += renderTrainItem(t);
-    });
-  }
+  // ---------- RENDU UI ----------
+  const UI = {
+    updateHeader() {
+      DOM.stationNameText.textContent = state.station;
+      DOM.tabDeparture.classList.toggle('active', state.mode === 'departure');
+      DOM.tabArrival.classList.toggle('active', state.mode === 'arrival');
+    },
 
-  // ---------- Event Handlers ----------
+    renderStationSelect(filter = '') {
+      const select = DOM.stationSelect;
+      select.innerHTML = '';
+      
+      let optionsCount = 0;
+      const fragment = document.createDocumentFragment();
 
-  // Gestion du clic sur un train pour afficher les détails
-  async function handleTrainClick(e) {
-      const trainEl = e.target.closest('.train');
+      // Si on a des stations de l'API
+      if (state.allStations.length > 0) {
+        const stations = state.allStations
+          .filter(s => !filter || s.standardname.toLowerCase().includes(filter.toLowerCase()))
+          .sort((a, b) => a.standardname.localeCompare(b.standardname));
+
+        stations.forEach(station => {
+          const option = document.createElement('option');
+          option.value = station.standardname;
+          option.textContent = station.standardname;
+          option.selected = station.standardname === state.station;
+          fragment.appendChild(option);
+          optionsCount++;
+        });
+      } else {
+        // Fallback si l'API n'a pas encore chargé
+        Object.entries(STATIONS).forEach(([category, stations]) => {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = category;
+          
+          stations.forEach(station => {
+            if (!filter || station.toLowerCase().includes(filter.toLowerCase())) {
+              const option = document.createElement('option');
+              option.value = station;
+              option.textContent = station;
+              option.selected = station === state.station;
+              optgroup.appendChild(option);
+              optionsCount++;
+            }
+          });
+
+          if (optgroup.children.length > 0) {
+            fragment.appendChild(optgroup);
+          }
+        });
+      }
+
+      select.appendChild(fragment);
+
+      // Gestion de l'affichage
+      if (filter) {
+        select.style.display = 'block';
+        
+        if (optionsCount === 0) {
+          const noResult = document.createElement('option');
+          noResult.disabled = true;
+          noResult.textContent = '❌ Aucune gare trouvée';
+          select.appendChild(noResult);
+        }
+      } else {
+        select.style.display = 'none';
+      }
+    },
+
+    renderOccupancy(occupancy) {
+      if (!occupancy || !occupancy.name || occupancy.name === 'unknown') {
+        return '';
+      }
+
+      const level = occupancy.name;
+      const cssClass = level === 'high' ? 'occ-high' : 
+                      level === 'medium' ? 'occ-medium' : '';
+      const percentage = level === 'high' ? 95 : 
+                        level === 'medium' ? 60 : 25;
+
+      return `
+        <span class="occupancy ${cssClass}" title="${level}">
+          <span class="occ-bar">
+            <span class="occ-fill" style="width:${percentage}%"></span>
+          </span>
+        </span>
+      `;
+    },
+
+    renderDisturbanceBanner() {
+      const relevant = state.disturbances.filter(d => {
+        const text = `${d.title} ${d.description}`.toLowerCase();
+        return text.includes(state.station.toLowerCase());
+      }).slice(0, 3);
+
+      if (relevant.length === 0) return '';
+
+      return `
+        <div class="banner">
+          <strong>⚠️ Perturbations</strong>
+          <div style="margin-top:6px">
+            ${relevant.map(d => d.title).join('<br>')}
+          </div>
+        </div>
+      `;
+    },
+
+    renderTrain(train) {
+      const time = Utils.formatTime(train.time);
+      const number = train.vehicleinfo?.shortname || train.vehicle || '—';
+      const platform = train.platform || '—';
+      const delayMin = Math.floor(train.delay / 60);
+      const delayText = train.delay > 0 
+        ? `<div class="delay delayed">+${delayMin} min</div>`
+        : `<div class="delay on-time">À l'heure</div>`;
+      
+      const cancelled = train.canceled === '1' || 
+                       train.canceled === 1 || 
+                       train.canceled === true;
+      
+      const occupancy = this.renderOccupancy(train.occupancy);
+      
+      const direction = train.direction 
+        ? (state.mode === 'departure' 
+          ? `→ ${train.direction.name}` 
+          : `${train.direction.name} →`)
+        : '';
+      
+      const dateStr = Utils.getDateString(new Date(train.time * 1000));
+
+      return `
+        <div class="train ${cancelled ? 'cancelled' : ''}" 
+             data-vehicle="${train.vehicle}" 
+             data-datestr="${dateStr}">
+          <div class="left">
+            <div class="train-number">${number} ${occupancy}</div>
+            <div class="route">
+              ${state.mode === 'departure' 
+                ? `${state.station} ${direction}` 
+                : `${direction} ${state.station}`}
+            </div>
+            <div class="platform">Quai: ${platform}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="time">${time}</div>
+            ${delayText}
+          </div>
+        </div>
+        <div class="details"></div>
+      `;
+    },
+
+    renderTrainDetails(details, currentStation) {
+      let html = '';
+
+      // Arrêts avec style métro moderne
+      if (details.vehicle?.stops) {
+        const stops = Array.isArray(details.vehicle.stops.stop)
+          ? details.vehicle.stops.stop
+          : [details.vehicle.stops.stop];
+
+        const now = Utils.nowSeconds();
+        
+        // Trouver la position actuelle du train
+        let lastPassedIndex = -1;
+        stops.forEach((stop, index) => {
+          const stopTime = parseInt(stop.time);
+          const stopDelay = parseInt(stop.delay || 0);
+          const actualTime = stopTime + stopDelay;
+          
+          if (actualTime <= now) {
+            lastPassedIndex = index;
+          }
+        });
+
+        html += '<h4>Itinéraire</h4><div class="metro-line">';
+        
+        stops.forEach((stop, index) => {
+          const isCurrent = stop.station.toLowerCase() === currentStation.toLowerCase();
+          const isFirst = index === 0;
+          const isLast = index === stops.length - 1;
+          
+          // Position du train
+          const isTrainHere = index === lastPassedIndex;
+          const isPassed = index < lastPassedIndex;
+          
+          // Gérer les retards
+          const delay = parseInt(stop.delay || 0);
+          const delayMin = Math.floor(delay / 60);
+          const delayClass = delay > 0 ? 'has-delay' : '';
+          const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
+          
+          // Gérer les annulations
+          const isCanceled = stop.canceled === '1' || stop.canceled === 1;
+          const cancelClass = isCanceled ? 'canceled' : '';
+          
+          html += `
+            <div class="metro-stop ${isCurrent ? 'current' : ''} ${isFirst ? 'first' : ''} ${isLast ? 'last' : ''} ${delayClass} ${cancelClass} ${isTrainHere ? 'train-position' : ''} ${isPassed ? 'passed' : ''}">
+              <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
+              <div class="metro-info">
+                <div class="metro-station">${stop.station}${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}</div>
+                <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
+              </div>
+            </div>
+          `;
+        });
+        
+        html += '</div>';
+      } else {
+        html += '<p>Détails d\'arrêt non disponibles.</p>';
+      }
+
+      // Composition
+      if (details.composition) {
+        const comp = details.composition.composition;
+        
+        if (comp && comp.segments && comp.segments.segment) {
+          const segments = Array.isArray(comp.segments.segment) 
+            ? comp.segments.segment 
+            : [comp.segments.segment];
+          
+          html += `<h4 style="margin-top:16px">Composition</h4>`;
+          html += `<div class="train-composition">`;
+          
+          // Utiliser un Set pour éviter les doublons
+          const seenUnits = new Set();
+          
+          segments.forEach((seg) => {
+            if (seg.composition && seg.composition.units) {
+              const units = Array.isArray(seg.composition.units.unit)
+                ? seg.composition.units.unit
+                : [seg.composition.units.unit];
+              
+              units.forEach(unit => {
+                const materialType = unit.materialType?.parent_type || unit.materialType || '?';
+                const unitId = unit.id || `${materialType}_${Math.random()}`;
+                
+                // Éviter les doublons
+                if (seenUnits.has(unitId)) return;
+                seenUnits.add(unitId);
+                
+                // Identifier le type de matériel
+                const typeUpper = materialType.toUpperCase();
+                let icon = '🚃';
+                let label = 'Voiture';
+                let cssClass = 'wagon';
+                
+                if (typeUpper.includes('HLE') || materialType.toLowerCase().includes('loco')) {
+                  icon = '🚂';
+                  label = 'Locomotive';
+                  cssClass = 'loco';
+                } else if (typeUpper.includes('HVP') || typeUpper.includes('HVR')) {
+                  icon = '🎛️';
+                  label = 'Voiture pilote';
+                  cssClass = 'pilot';
+                } else if (typeUpper.match(/^(M|I|B)\d+/)) {
+                  icon = '🚃';
+                  label = 'Voiture';
+                  cssClass = 'wagon';
+                } else if (typeUpper.includes('AM')) {
+                  icon = '🚊';
+                  label = 'Automotrice';
+                  cssClass = 'emu';
+                }
+                
+                html += `
+                  <div class="train-unit ${cssClass}" title="${label}">
+                    <div class="unit-icon">${icon}</div>
+                    <div class="unit-type">${materialType}</div>
+                  </div>
+                `;
+              });
+            }
+          });
+          
+          html += `</div>`;
+          html += `<p style="margin-top:8px;font-size:11px;color:#64748b;text-align:center">← Sens de marche (tête du train à gauche)</p>`;
+        } else {
+          html += `<h4 style="margin-top:16px">Composition</h4>`;
+          html += `<p>ℹ️ Composition non disponible pour ce train</p>`;
+        }
+      } else {
+        html += `<h4 style="margin-top:16px">Composition</h4>`;
+        html += `<p>ℹ️ Données de composition non disponibles</p>`;
+      }
+
+      return html;
+    },
+
+    async renderTrainsList(data) {
+      const container = DOM.trainsList;
+      container.innerHTML = '';
+
+      // L'API retourne "departures" ou "arrivals" selon le mode
+      const key = state.mode === 'departure' ? 'departures' : 'arrivals';
+      const rawTrains = data[key];
+      
+      // Vérifier si des données existent
+      if (!rawTrains) {
+        const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
+        container.innerHTML = `
+          <div class="info">
+            Aucun ${modeText} prévu pour la gare de ${state.station}.
+          </div>
+        `;
+        return;
+      }
+
+      // L'API peut retourner departure ou arrival selon le mode
+      const trainsKey = state.mode === 'departure' ? 'departure' : 'arrival';
+      const trains = rawTrains[trainsKey] || [];
+      const trainsArray = Array.isArray(trains) ? trains : (trains ? [trains] : []);
+
+      // Bannière perturbations
+      container.innerHTML += this.renderDisturbanceBanner();
+
+      // Message si aucun train
+      if (trainsArray.length === 0) {
+        const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
+        container.innerHTML += `
+          <div class="info">
+            Aucun ${modeText} prévu pour la gare de ${state.station}.
+          </div>
+        `;
+        return;
+      }
+
+      // Liste des trains
+      trainsArray.forEach(train => {
+        container.innerHTML += this.renderTrain(train);
+      });
+    },
+
+    showLoading() {
+      DOM.trainsList.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <div style="margin-top:10px">Chargement des horaires...</div>
+        </div>
+      `;
+    },
+
+    showError(message) {
+      DOM.trainsList.innerHTML = `
+        <div class="error">⚠️ ${message}</div>
+      `;
+    }
+  };
+
+  // ---------- GESTION DES ÉVÉNEMENTS ----------
+  const Events = {
+    async handleTrainClick(event) {
+      const trainEl = event.target.closest('.train');
       if (!trainEl) return;
 
       const vehicleId = trainEl.dataset.vehicle;
       const dateStr = trainEl.dataset.datestr;
       const detailsEl = trainEl.nextElementSibling;
-
       const isExpanded = trainEl.classList.contains('expanded');
 
+      // Fermer tous les trains
       document.querySelectorAll('.train.expanded').forEach(el => {
-          el.classList.remove('expanded');
-          el.nextElementSibling.innerHTML = '';
+        el.classList.remove('expanded');
+        el.nextElementSibling.innerHTML = '';
       });
 
+      // Si déjà ouvert, on le ferme
       if (isExpanded) {
-          state.expandedVehicle = null;
-          return;
+        state.expandedVehicle = null;
+        return;
       }
 
+      // Ouvrir ce train
       trainEl.classList.add('expanded');
       state.expandedVehicle = vehicleId;
 
-      detailsEl.innerHTML = `<div class="loading"><div class="spinner small"></div>Chargement des détails...</div>`;
+      detailsEl.innerHTML = `
+        <div class="loading">
+          <div class="spinner small"></div>
+          Chargement des détails...
+        </div>
+      `;
 
-      const details = await loadTrainDetails(vehicleId, dateStr);
+      const details = await API.getVehicleDetails(vehicleId, dateStr);
+      detailsEl.innerHTML = UI.renderTrainDetails(details, state.station);
+    },
 
-      let content = '';
-      if (details.vehicle && details.vehicle.stops) {
-          const stops = Array.isArray(details.vehicle.stops.stop) ? details.vehicle.stops.stop : [details.vehicle.stops.stop];
-          content += '<h4>Arrêts:</h4><div class="stops">';
-          stops.forEach(s => {
-              const isCurrent = s.station.toLowerCase() === state.station.toLowerCase();
-              content += `<div class="stop ${isCurrent ? 'current' : ''}">${isCurrent ? '📍' : '•'} ${s.station} (${utils.formatTime(s.time)})</div>`;
-          });
-          content += '</div>';
-      } else {
-          content += '<p>Détails d\'arrêt non disponibles.</p>';
-      }
+    handleStationSearch: Utils.debounce((event) => {
+      UI.renderStationSelect(event.target.value);
+    }, CONFIG.DEBOUNCE_DELAY),
 
-      if (details.composition) {
-          content += `<h4>Composition:</h4><p>Voitures: ${details.composition.nrOfCars || 'N/A'}</p>`;
-      } else {
-          content += '<p>Composition non disponible.</p>';
-      }
+    handleStationSelect(event) {
+      state.station = event.target.value;
+      DOM.stationSelect.style.display = 'none';
+      DOM.stationSearch.value = '';
+      App.saveState();
+      App.init();
+    },
 
-      detailsEl.innerHTML = content;
-  }
+    handleModeChange(mode) {
+      state.mode = mode;
+      App.saveState();
+      App.init();
+    },
 
-  function setupListeners(){
-    // 1. Recherche de gare : Utilise DEBOUNCE pour éviter les appels excessifs
-    refs.stationSearch.addEventListener(
-      'input', 
-      utils.debounce((e) => {
-        renderStationSelect(e.target.value);
-      }, 300)
-    );
-    
-    // 2. Sélection de gare
-    refs.stationSelect.addEventListener('change', (e) => {
-      state.station = e.target.value;
-      refs.stationSelect.style.display = 'none'; 
-      refs.stationSearch.value = ''; 
-      saveState();
-      init(); 
-    });
-    
-    // 3. Onglets de mode
-    refs.tabDeparture.addEventListener('click', () => { state.mode='departure'; saveState(); init(); });
-    refs.tabArrival.addEventListener('click', () => { state.mode='arrival'; saveState(); init(); });
-    
-    // 4. Bouton Actualiser
-    refs.refreshBtn.addEventListener('click', () => init(true));
-
-    // 5. Clic sur un train pour détails
-    refs.trainsList.addEventListener('click', handleTrainClick);
-
-    // 6. Masquer la liste de sélection si l'utilisateur clique ailleurs
-    document.addEventListener('click', (e) => {
-      const isSelect = refs.stationSelect.contains(e.target);
-      const isSearch = refs.stationSearch.contains(e.target);
+    handleDocumentClick(event) {
+      const isSelect = DOM.stationSelect.contains(event.target);
+      const isSearch = DOM.stationSearch.contains(event.target);
+      
       if (!isSelect && !isSearch) {
-          refs.stationSelect.style.display = 'none';
+        DOM.stationSelect.style.display = 'none';
       }
-    });
-    
-    // 7. Bouton Localiser (nécessite l'API de géolocalisation pour une implémentation complète)
-    refs.locateBtn.addEventListener('click', () => {
-        // Logique de géolocalisation ici...
-        alert("La géolocalisation est en cours d'implémentation.");
-    });
-  }
+    },
 
-  // ---------- Initialisation ----------
-
-  async function init(forceRefresh = false){
-    if(state.isFetching && !forceRefresh) return;
-    state.isFetching = true;
-
-    // 1. Mise à jour de l'interface
-    renderHeader();
-    // Afficher l'indicateur de chargement
-    refs.trainsList.innerHTML = `<div class="loading" id="initialLoading"><div class="spinner"></div><div style="margin-top:10px">Chargement des horaires...</div></div>`;
-
-    // 2. Annuler l'auto-refresh
-    if(state.autoRefreshHandle) clearTimeout(state.autoRefreshHandle);
-
-    try{
-      // 3. Charger les perturbations
-      await loadDisturbances(); 
-      
-      // 4. Charger les horaires
-      const url = `${API_BASE}/board/?station=${encodeURIComponent(state.station)}&lang=${utils.lang()}&format=json`;
-      const data = await fetchJsonWithTimeout(url);
-      
-      // 5. Rendre les trains
-      await processTrainsData(data);
-
-      // 6. Configurer l'auto-refresh
-      state.autoRefreshHandle = setTimeout(init, AUTO_REFRESH_MS);
-
-    } catch(e) {
-      console.error('Initialisation Error:', e);
-      // Affichage d'une erreur claire en cas de problème (ex: HTTP 404, Timeout)
-      const errorMsg = e.message.includes('HTTP 404') 
-          ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
-          : `Impossible de charger les horaires pour le moment. Veuillez réessayer. (${e.message})`;
-          
-      refs.trainsList.innerHTML = `<div class="error">⚠️ ${errorMsg}</div>`;
-    } finally {
-      state.isFetching = false;
+    handleLocate() {
+      alert('La géolocalisation est en cours d\'implémentation.');
     }
-  }
+  };
 
-  // Lancement de l'application
-  setupListeners();
-  init();
+  // ---------- APPLICATION ----------
+  const App = {
+    saveState() {
+      localStorage.setItem('nt_mode', state.mode);
+      localStorage.setItem('nt_station', state.station);
+    },
 
-})(); // Fin de l'IIFE
+    setupListeners() {
+      DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
+      DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
+      DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
+      DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
+      DOM.refreshBtn.addEventListener('click', () => this.init(true));
+      DOM.trainsList.addEventListener('click', Events.handleTrainClick);
+      DOM.locateBtn.addEventListener('click', Events.handleLocate);
+      document.addEventListener('click', Events.handleDocumentClick);
+    },
+
+    async init(forceRefresh = false) {
+      if (state.isFetching && !forceRefresh) return;
+      
+      state.isFetching = true;
+      UI.updateHeader();
+      UI.showLoading();
+
+      // Annuler l'auto-refresh
+      if (state.autoRefreshHandle) {
+        clearTimeout(state.autoRefreshHandle);
+      }
+
+      try {
+        // Charger la liste des stations si pas encore fait
+        if (state.allStations.length === 0) {
+          console.log('Chargement de toutes les gares SNCB...');
+          state.allStations = await API.getAllStations();
+          console.log(`${state.allStations.length} gares chargées`);
+        }
+
+        // Charger perturbations
+        state.disturbances = await API.getDisturbances();
+        
+        // Charger horaires
+        const data = await API.getStationBoard(state.station, state.mode);
+        
+        // Afficher les trains
+        await UI.renderTrainsList(data);
+
+        // Programmer le prochain refresh
+        state.autoRefreshHandle = setTimeout(
+          () => this.init(), 
+          CONFIG.AUTO_REFRESH
+        );
+
+      } catch (error) {
+        console.error('Erreur initialisation:', error);
+        
+        const message = error.message.includes('HTTP 404')
+          ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
+          : `Impossible de charger les horaires. Veuillez réessayer. (${error.message})`;
+        
+        UI.showError(message);
+      } finally {
+        state.isFetching = false;
+      }
+    },
+
+    start() {
+      this.setupListeners();
+      this.init();
+    }
+  };
+
+  // ---------- DÉMARRAGE ----------
+  App.start();
+
+})();
