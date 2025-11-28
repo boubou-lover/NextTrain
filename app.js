@@ -1,8 +1,9 @@
 /* ============================================================
-   NextTrain – app.js (v8)
+   NextTrain – app.js (v9)
    - Liveboard par gare
    - Itinéraires cliquables (gare → horaires)
    - Recherche globale par numéro de train
+   - Recherche gare améliorée (tolérante + tri intelligent)
    ============================================================ */
 
 (function(){
@@ -131,6 +132,7 @@
       return `${vehicleId}_${dateStr}`;
     },
 
+    // Calcul de distance (géolocalisation)
     getDistance(lat1, lon1, lat2, lon2) {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -140,6 +142,15 @@
                 Math.sin(dLon/2) * Math.sin(dLon/2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
       return R * c;
+    },
+
+    // 🆕 Normalisation pour recherche tolérante (accents/espaces/majuscules)
+    normalize(str) {
+      return String(str || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // accents
+        .toLowerCase()
+        .replace(/\s+/g, '');            // espaces
     }
   };
 
@@ -148,7 +159,7 @@
     stationNameText: document.getElementById('stationNameText'),
     stationSelect: document.getElementById('stationSelect'),
     stationSearch: document.getElementById('stationSearch'),
-    trainSearch: document.getElementById('trainSearch'), // 🆕 recherche globale train
+    trainSearch: document.getElementById('trainSearch'),
     tabDeparture: document.getElementById('tabDeparture'),
     tabArrival: document.getElementById('tabArrival'),
     trainsList: document.getElementById('trainsList'),
@@ -253,7 +264,7 @@
       }
     },
 
-    // 🆕 Recherche globale par numéro de train (toutes gares)
+    // 🆕 Recherche globale par numéro de train
     async findTrainByNumber(rawNum) {
       const num = String(rawNum).replace(/\D/g, '');
       if (!num) return null;
@@ -261,7 +272,6 @@
       const prefixes = ['IC', 'P', 'S', 'L', 'TGV', 'THA', 'ICE', 'EXT', 'RB', 'EC'];
       const dateStr = Utils.getDateString();
 
-      // On génère plusieurs IDs possibles : IC2112 / BE.NMBS.IC2112 etc.
       const candidates = [];
       prefixes.forEach(p => {
         candidates.push(`${p}${num}`);
@@ -275,7 +285,7 @@
             return { vehicleId: id, dateStr, details };
           }
         } catch (e) {
-          // On essaie le suivant
+          // on essaie le suivant
         }
       }
 
@@ -293,17 +303,33 @@
 
     renderStationSelect(filter = '') {
       const select = DOM.stationSelect;
+      if (!select) return;
+
       select.innerHTML = '';
-      
       let optionsCount = 0;
 
       if (state.allStations.length > 0) {
-        const filterLower = filter.toLowerCase();
-        
-        const stations = state.allStations
-          .filter(s => filterLower === '' || s.standardname.toLowerCase().includes(filterLower))
-          .slice(0, 50)
-          .sort((a, b) => a.standardname.localeCompare(b.standardname));
+        const cleanFilter = Utils.normalize(filter);
+
+        let stations = state.allStations
+          .filter(s => {
+            const cleanName = Utils.normalize(s.standardname);
+            return cleanFilter === '' || cleanName.includes(cleanFilter);
+          })
+          .sort((a, b) => {
+            const fa = Utils.normalize(a.standardname);
+            const fb = Utils.normalize(b.standardname);
+
+            if (cleanFilter) {
+              const aStarts = fa.startsWith(cleanFilter);
+              const bStarts = fb.startsWith(cleanFilter);
+              if (aStarts && !bStarts) return -1;
+              if (!aStarts && bStarts) return 1;
+            }
+
+            return fa.localeCompare(fb);
+          })
+          .slice(0, 15); // 🆕 max 15 résultats pour plus de lisibilité
 
         optionsCount = stations.length;
 
@@ -319,8 +345,6 @@
         
         if (optionsCount === 0) {
           select.innerHTML = '<option disabled>❌ Aucune gare trouvée</option>';
-        } else if (optionsCount === 50) {
-          select.innerHTML += '<option disabled>... (affichage limité à 50 résultats)</option>';
         }
       } else {
         select.style.display = 'none';
@@ -388,8 +412,8 @@
       ].filter(n => n);
       
       for (const source of potentialSources) {
-        const currentStationNormalized = state.station.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const sourceNormalized = source.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const currentStationNormalized = Utils.normalize(state.station);
+        const sourceNormalized = Utils.normalize(source);
         if (sourceNormalized !== currentStationNormalized) {
           mainStationName = source;
           break; 
@@ -463,7 +487,7 @@
           html += '<h4>Itinéraire</h4><div class="metro-line">';
           
           stops.forEach((stop, index) => {
-            const isCurrent = stop.station.toLowerCase() === (currentStation || '').toLowerCase();
+            const isCurrent = Utils.normalize(stop.station) === Utils.normalize(currentStation || '');
             const isFirst = index === 0;
             const isLast = index === stops.length - 1;
             const isTrainHere = index === lastPassedIndex;
@@ -578,6 +602,8 @@
 
     async renderTrainsList(data) {
       const container = DOM.trainsList;
+      if (!container) return;
+
       container.innerHTML = '';
 
       const key = state.mode === 'departure' ? 'departures' : 'arrivals';
@@ -615,6 +641,7 @@
     },
 
     showLoading() {
+      if (!DOM.trainsList) return;
       DOM.trainsList.innerHTML = `
         <div class="loading">
           <div class="spinner"></div>
@@ -624,6 +651,7 @@
     },
 
     showError(message) {
+      if (!DOM.trainsList) return;
       DOM.trainsList.innerHTML = `
         <div class="error">⚠️ ${message}</div>
       `;
@@ -643,7 +671,8 @@
 
       document.querySelectorAll('.train.expanded').forEach(el => {
         el.classList.remove('expanded');
-        el.nextElementSibling.innerHTML = '';
+        const d = el.nextElementSibling;
+        if (d) d.innerHTML = '';
       });
 
       if (isExpanded) {
@@ -654,6 +683,7 @@
       trainEl.classList.add('expanded');
       state.expandedVehicle = vehicleId;
 
+      if (!detailsEl) return;
       detailsEl.innerHTML = `
         <div class="loading">
           <div class="spinner small"></div>
@@ -671,8 +701,8 @@
 
     handleStationSelect(event) {
       state.station = event.target.value;
-      DOM.stationSelect.style.display = 'none';
-      DOM.stationSearch.value = '';
+      if (DOM.stationSelect) DOM.stationSelect.style.display = 'none';
+      if (DOM.stationSearch) DOM.stationSearch.value = '';
       App.saveState();
       App.init();
     },
@@ -760,7 +790,7 @@
       }
     },
 
-    // 🆕 Clic sur une gare dans l'itinéraire → horaires de cette gare
+    // Clic sur une gare dans l'itinéraire → horaires de cette gare
     handleStationClickFromItinerary(event) {
       const el = event.target.closest('.goto-station');
       if (!el) return;
@@ -781,7 +811,7 @@
       });
     },
 
-    // 🆕 Recherche globale par numéro (champ trainSearch, touche Entrée)
+    // Recherche globale par numéro (champ trainSearch, touche Entrée)
     async handleTrainGlobalSearchKey(event) {
       if (event.key !== 'Enter') return;
       if (!DOM.trainSearch) return;
@@ -941,7 +971,7 @@
       }
     },
 
-    // 🆕 Recherche globale du train → affichage direct de l’itinéraire
+    // Recherche globale du train → affichage direct de l’itinéraire
     async searchTrainGlobally(num) {
       if (state.autoRefreshHandle) {
         clearTimeout(state.autoRefreshHandle);
@@ -960,7 +990,6 @@
 
         const { vehicleId, details } = result;
 
-        // Déduire origine / destination
         let origin = '';
         let destination = '';
         if (details.vehicle && details.vehicle.stops && details.vehicle.stops.stop) {
@@ -972,12 +1001,13 @@
           }
         }
 
-        // Numéro court pour affichage
         let shortId = vehicleId;
         if (vehicleId.includes('.')) {
           const parts = vehicleId.split('.');
           shortId = parts[parts.length - 1];
         }
+
+        if (!DOM.trainsList) return;
 
         DOM.trainsList.innerHTML = `
           <div class="info">
