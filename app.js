@@ -127,6 +127,18 @@
 
     cacheKey(vehicleId, dateStr) {
       return `${vehicleId}_${dateStr}`;
+    },
+
+    // Calculer la distance entre deux coordonnées (formule de Haversine)
+    getDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371; // Rayon de la Terre en km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
     }
   };
 
@@ -654,8 +666,73 @@
       }
     },
 
-    handleLocate() {
-      alert('La géolocalisation est en cours d\'implémentation.');
+    async handleLocate() {
+      if (!navigator.geolocation) {
+        alert('La géolocalisation n\'est pas supportée par votre navigateur.');
+        return;
+      }
+
+      DOM.locateBtn.disabled = true;
+      DOM.locateBtn.textContent = '📍 Localisation...';
+
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          });
+        });
+
+        const userLat = position.coords.latitude;
+        const userLon = position.coords.longitude;
+
+        // Trouver la gare la plus proche
+        if (state.allStations.length === 0) {
+          alert('Chargement des gares en cours, veuillez réessayer...');
+          return;
+        }
+
+        let nearestStation = null;
+        let minDistance = Infinity;
+
+        state.allStations.forEach(station => {
+          if (station.locationY && station.locationX) {
+            const lat = parseFloat(station.locationY);
+            const lon = parseFloat(station.locationX);
+            const distance = Utils.getDistance(userLat, userLon, lat, lon);
+            
+            if (distance < minDistance) {
+              minDistance = distance;
+              nearestStation = station;
+            }
+          }
+        });
+
+        if (nearestStation) {
+          state.station = nearestStation.standardname;
+          App.saveState();
+          App.init();
+          
+          DOM.stationNameText.textContent = `${nearestStation.standardname} (${minDistance.toFixed(1)} km)`;
+          setTimeout(() => {
+            DOM.stationNameText.textContent = nearestStation.standardname;
+          }, 3000);
+        } else {
+          alert('Impossible de trouver une gare proche.');
+        }
+
+      } catch (error) {
+        console.error('Erreur géolocalisation:', error);
+        if (error.code === 1) {
+          alert('Vous devez autoriser la géolocalisation pour utiliser cette fonctionnalité.');
+        } else {
+          alert('Erreur lors de la géolocalisation. Veuillez réessayer.');
+        }
+      } finally {
+        DOM.locateBtn.disabled = false;
+        DOM.locateBtn.textContent = '📍 Localiser';
+      }
     }
   };
 
@@ -675,6 +752,77 @@
       DOM.trainsList.addEventListener('click', Events.handleTrainClick);
       DOM.locateBtn.addEventListener('click', Events.handleLocate);
       document.addEventListener('click', Events.handleDocumentClick);
+    },
+
+    async tryGeolocation() {
+      // Ne géolocaliser que si c'est la première visite (pas de station sauvegardée)
+      const savedStation = localStorage.getItem('nt_station');
+      if (savedStation) {
+        console.log('Station déjà sauvegardée, pas de géolocalisation auto');
+        return false;
+      }
+
+      if (!navigator.geolocation) {
+        console.log('Géolocalisation non supportée');
+        return false;
+      }
+
+      console.log('Première visite - tentative de géolocalisation...');
+
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: false,
+            timeout: 5000,
+            maximumAge: 60000
+          });
+        });
+
+        const userLat = position.coords.latitude;
+        const userLon = position.coords.longitude;
+
+        // Attendre que les stations soient chargées
+        let attempts = 0;
+        while (state.allStations.length === 0 && attempts < 20) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          attempts++;
+        }
+
+        if (state.allStations.length === 0) {
+          console.log('Stations pas encore chargées');
+          return false;
+        }
+
+        // Trouver la gare la plus proche
+        let nearestStation = null;
+        let minDistance = Infinity;
+
+        state.allStations.forEach(station => {
+          if (station.locationY && station.locationX) {
+            const lat = parseFloat(station.locationY);
+            const lon = parseFloat(station.locationX);
+            const distance = Utils.getDistance(userLat, userLon, lat, lon);
+            
+            if (distance < minDistance) {
+              minDistance = distance;
+              nearestStation = station;
+            }
+          }
+        });
+
+        if (nearestStation && minDistance < 50) { // Max 50km
+          console.log(`Gare la plus proche: ${nearestStation.standardname} (${minDistance.toFixed(1)} km)`);
+          state.station = nearestStation.standardname;
+          this.saveState();
+          return true;
+        }
+
+      } catch (error) {
+        console.log('Géolocalisation échouée ou refusée:', error.message);
+        return false;
+      }
+
+      return false;
     },
 
     async init(forceRefresh = false) {
@@ -725,9 +873,21 @@
       }
     },
 
-    start() {
+    async start() {
       this.setupListeners();
-      this.init();
+      
+      // Démarrer le chargement initial
+      const initPromise = this.init();
+      
+      // En parallèle, essayer la géolocalisation
+      const geolocated = await this.tryGeolocation();
+      
+      // Si géolocalisé, relancer avec la nouvelle station
+      if (geolocated) {
+        await this.init(true);
+      } else {
+        await initPromise;
+      }
     }
   };
 
