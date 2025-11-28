@@ -337,6 +337,7 @@
       `;
     },
 
+// ...
   renderTrain(train) {
     const time = Utils.formatTime(train.time);
     const platform = train.platform || '—';
@@ -353,20 +354,27 @@
     
     // CORRECTION #1: Afficher la Terminus/Origine au lieu de la gare sélectionnée
     let routeText = 'Destination inconnue';
-    if (train.direction && train.direction.name) {
-      const mainStation = train.direction.name; // Terminus en Départ, Origine en Arrivée
+    
+    // Tenter d'abord d'utiliser la donnée "direction"
+    let mainStationName = train.direction?.name;
+    
+    // Si la direction n'est pas disponible ou est la gare actuelle (cas d'erreur)
+    // On essaie d'utiliser la variable du train lui-même qui pointe vers le terminus/l'origine
+    if (!mainStationName || mainStationName === state.station) {
+      mainStationName = train.stationinfo?.standardname;
+    }
+    
+    if (mainStationName) {
       if (state.mode === 'departure') {
-        routeText = `Vers ${mainStation}`; 
+        routeText = `Vers ${mainStationName}`; 
       } else {
-        routeText = `Depuis ${mainStation}`; 
+        routeText = `Depuis ${mainStationName}`; 
       }
     } else {
       routeText = `Gare: ${state.station}`; 
     }
     
-    // CORRECTION #2: Extraire le numéro court du train.
-    // train.vehicle est le long ID (BE.NMBS.IC2112)
-    // train.vehicle.shortname est le court ID (IC2112) ou (S50)
+    // CORRECTION #2: Extraire le numéro court du train. (Répétée pour s'assurer que vous l'avez)
     let number = '—';
     if (train.vehicle) {
       // Priorité 1: shortname (ex: IC2112)
@@ -401,6 +409,7 @@
           <div class="details"></div>
         `;
       },
+// ...,
 
     renderTrainDetails(details, currentStation) {
       let html = '';
