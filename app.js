@@ -1,6 +1,5 @@
-// ---------- STATIONS (sera chargé depuis l'API) ----------
-  const STATIONS = {};/* ============================================================
-   NextTrain – app.js (Version Complète et Optimisée)
+/* ============================================================
+   NextTrain – app.js (Version Complète et Optimisée - v2)
    ============================================================ */
 
 (function(){
@@ -9,7 +8,7 @@
     API_BASE: 'https://api.irail.be',
     CACHE_TTL: 5 * 60 * 1000,
     AUTO_REFRESH: 60000,
-    DEBOUNCE_DELAY: 150, // Réduit de 300ms à 150ms
+    DEBOUNCE_DELAY: 150,
     FETCH_TIMEOUT: 7000
   };
 
@@ -25,7 +24,7 @@
     isFetching: false
   };
 
-  // ---------- STATIONS PAR LIGNE ----------
+  // ---------- STATIONS PAR LIGNE (Référence statique) ----------
   const STATIONS = {
     'Bruxelles': [
       'Bruxelles-Midi', 'Bruxelles-Central', 'Bruxelles-Nord', 
@@ -340,7 +339,7 @@
 
   renderTrain(train) {
   const time = Utils.formatTime(train.time);
-  const number = train.vehicleinfo?.shortname || train.vehicle || '—';
+  const number = train.vehicle?.shortname || train.vehicle || '—';
   const platform = train.platform || '—';
   const delayMin = Math.floor(train.delay / 60);
   const delayText = train.delay > 0 
@@ -353,18 +352,17 @@
   
   const occupancy = this.renderOccupancy(train.occupancy);
   
-  // Direction correcte selon le mode
+  // MODIFICATION ICI: Afficher uniquement la gare Terminus (Départ) ou Origine (Arrivée)
   let routeText = '';
   if (train.direction) {
+    const mainStation = train.direction.name; // Terminus en Départ, Origine en Arrivée
     if (state.mode === 'departure') {
-      // Mode départ : Station actuelle → Terminus
-      routeText = `${state.station} → ${train.direction.name}`;
+      routeText = `Vers ${mainStation}`; // Ex: Vers Liège-Guillemins
     } else {
-      // Mode arrivée : Origine → Station actuelle
-      routeText = `${train.direction.name} → ${state.station}`;
+      routeText = `Depuis ${mainStation}`; // Ex: Depuis Bruxelles-Midi
     }
   } else {
-    routeText = state.station;
+    routeText = `Gare: ${state.station}`; // Fallback, si direction non dispo
   }
   
   const dateStr = Utils.getDateString(new Date(train.time * 1000));
