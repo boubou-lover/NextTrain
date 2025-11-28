@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexttrain-v2.1';
+const CACHE_NAME = 'nexttrain-v3';
 const urlsToCache = [
   '/',
   '/index.html',
