@@ -1,5 +1,8 @@
 /* ============================================================
-   NextTrain – app.js (Version Complète, Corrigée et Optimisée - v8)
+   NextTrain – app.js (v8)
+   - Liveboard par gare
+   - Itinéraires cliquables (gare → horaires)
+   - Recherche globale par numéro de train
    ============================================================ */
 
 (function(){
@@ -24,18 +27,70 @@
     isFetching: false
   };
 
-  // ---------- STATIONS PAR LIGNE (optionnel, référence statique) ----------
+  // ---------- STATIONS PAR LIGNE (Référence statique) ----------
   const STATIONS = {
-    "Bruxelles": [
-      "Bruxelles-Midi","Bruxelles-Central","Bruxelles-Nord",
-      "Bruxelles-Luxembourg","Bruxelles-Schuman","Bruxelles-Chapelle",
-      "Bruxelles-Ouest","Etterbeek","Schaerbeek","Berchem-Sainte-Agathe"
+    'Bruxelles': [
+      'Bruxelles-Midi', 'Bruxelles-Central', 'Bruxelles-Nord', 
+      'Bruxelles-Luxembourg', 'Bruxelles-Schuman', 'Bruxelles-Chapelle',
+      'Bruxelles-Ouest', 'Etterbeek', 'Schaerbeek', 'Berchem-Sainte-Agathe'
     ],
-    "Luxembourg": [
-      "Libramont","Arlon","Neufchâteau","Virton","Bertrix",
-      "Marche-en-Famenne","Bastogne","Gouvy","Marbehan"
+    'Brabant Flamand': [
+      'Leuven', 'Aarschot', 'Diest', 'Tienen', 'Landen', 'Herent',
+      'Haacht', 'Rotselaar', 'Kessel-Lo', 'Heverlee', 'Oud-Heverlee',
+      'Neerijse', 'Loonbeek', 'Wilsele'
+    ],
+    'Brabant Wallon': [
+      'Wavre', 'Louvain-la-Neuve', 'Ottignies', 'Braine-l\'Alleud',
+      'Waterloo', 'Rixensart', 'Genval', 'La Hulpe', 'Profondsart',
+      'Bierges-Walibi', 'Limal', 'Court-Saint-Etienne'
+    ],
+    'Anvers': [
+      'Antwerpen-Centraal', 'Antwerpen-Berchem', 'Antwerpen-Zuid',
+      'Mechelen', 'Lier', 'Heist-op-den-Berg', 'Duffel', 'Kontich',
+      'Mortsel', 'Puurs', 'Willebroek'
+    ],
+    'Flandre Occidentale': [
+      'Bruges', 'Oostende', 'Kortrijk', 'Roeselare', 'Izegem',
+      'De Panne', 'Knokke', 'Blankenberge', 'Veurne', 'Diksmuide',
+      'Torhout', 'Waregem', 'Wielsbeke', 'Harelbeke'
+    ],
+    'Flandre Orientale': [
+      'Gent-Sint-Pieters', 'Aalst', 'Dendermonde', 'Sint-Niklaas',
+      'Lokeren', 'Wetteren', 'Oudenaarde', 'Ronse', 'Geraardsbergen',
+      'Zottegem', 'Ninove', 'Eeklo', 'Zelzate', 'Melle'
+    ],
+    'Limbourg': [
+      'Hasselt', 'Genk', 'Sint-Truiden', 'Tongeren', 'Bilzen',
+      'Bree', 'Lommel', 'Mol', 'Beringen', 'Diepenbeek'
+    ],
+    'Liège': [
+      'Liège-Guillemins', 'Liège-Palais', 'Verviers-Central', 'Seraing',
+      'Herstal', 'Ans', 'Flémalle-Haute', 'Angleur', 'Chênée',
+      'Pepinster', 'Spa', 'Trooz', 'Bressoux', 'Kinkempois',
+      'Sclessin', 'Jemeppe-sur-Meuse', 'Engis', 'Hermalle-sous-Argenteau'
+    ],
+    'Namur': [
+      'Namur', 'Ciney', 'Dinant', 'Gembloux', 'Marloie', 'Jemelle',
+      'Assesse', 'Spy', 'Tamines', 'Andenne', 'Jambes',
+      'Dave', 'Yvoir', 'Spontin', 'Godinne', 'Anhée'
+    ],
+    'Hainaut': [
+      'Mons', 'Charleroi-Sud', 'Tournai', 'Mouscron', 'La Louvière-Sud',
+      'Braine-le-Comte', 'Ath', 'Binche', 'Manage', 'Jemappes',
+      'Quévy', 'Soignies', 'Lessines', 'Leuze', 'Enghien',
+      'Marchienne-au-Pont', 'Châtelet', 'Farciennes', 'Montignies-sur-Sambre',
+      'Gosselies', 'Fleurus', 'Jumet', 'Frameries', 'Quiévrain',
+      'Boussu', 'Saint-Ghislain', 'Péruwelz', 'Silly', 'Comines'
+    ],
+    'Luxembourg': [
+      'Libramont', 'Arlon', 'Neufchâteau', 'Virton', 'Bertrix',
+      'Marche-en-Famenne', 'Bastogne', 'Gouvy', 'Marbehan',
+      'Habay', 'Florenville', 'Stockem', 'Athus', 'Rodange',
+      'Poix-Saint-Hubert', 'Barvaux', 'Melreux-Hotton'
+    ],
+    'Autres connexions': [
+      'Luxembourg', 'Maastricht', 'Roosendaal', 'Essen', 'Lille-Flandres'
     ]
-    // ... (tu peux remettre ta grosse liste si tu veux)
   };
 
   // ---------- UTILITAIRES ----------
@@ -51,7 +106,10 @@
 
     formatTime(timestamp) {
       const date = new Date(timestamp * 1000);
-      return date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString('fr-BE', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
     },
 
     getDateString(date = new Date()) {
@@ -73,23 +131,15 @@
       return `${vehicleId}_${dateStr}`;
     },
 
-    // Calculer la distance entre deux coordonnées (Haversine)
     getDistance(lat1, lon1, lat2, lon2) {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
       return R * c;
-    },
-
-    normalizeName(str) {
-      if (!str) return '';
-      return str.toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '');
     }
   };
 
@@ -98,6 +148,7 @@
     stationNameText: document.getElementById('stationNameText'),
     stationSelect: document.getElementById('stationSelect'),
     stationSearch: document.getElementById('stationSearch'),
+    trainSearch: document.getElementById('trainSearch'), // 🆕 recherche globale train
     tabDeparture: document.getElementById('tabDeparture'),
     tabArrival: document.getElementById('tabArrival'),
     trainsList: document.getElementById('trainsList'),
@@ -110,18 +161,19 @@
     get(key) {
       const cached = state.trainDetailsCache[key];
       if (!cached) return null;
-
+      
       if (Date.now() - cached.timestamp > CONFIG.CACHE_TTL) {
         delete state.trainDetailsCache[key];
         return null;
       }
+      
       return cached.data;
     },
 
     set(key, data) {
       state.trainDetailsCache[key] = {
         timestamp: Date.now(),
-        data
+        data: data
       };
     }
   };
@@ -136,7 +188,11 @@
       try {
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
         return await response.json();
       } catch (error) {
         clearTimeout(timeoutId);
@@ -173,8 +229,9 @@
     },
 
     async getVehicleDetails(vehicleId, dateStr) {
-      const key = Utils.cacheKey(vehicleId, dateStr);
-      const cached = Cache.get(key);
+      const cacheKey = Utils.cacheKey(vehicleId, dateStr);
+      const cached = Cache.get(cacheKey);
+      
       if (cached) return cached;
 
       try {
@@ -188,12 +245,41 @@
         ]);
 
         const details = { vehicle, composition };
-        Cache.set(key, details);
+        Cache.set(cacheKey, details);
         return details;
       } catch (error) {
         console.error('Erreur détails train:', error);
         return { vehicle: null, composition: null };
       }
+    },
+
+    // 🆕 Recherche globale par numéro de train (toutes gares)
+    async findTrainByNumber(rawNum) {
+      const num = String(rawNum).replace(/\D/g, '');
+      if (!num) return null;
+
+      const prefixes = ['IC', 'P', 'S', 'L', 'TGV', 'THA', 'ICE', 'EXT', 'RB', 'EC'];
+      const dateStr = Utils.getDateString();
+
+      // On génère plusieurs IDs possibles : IC2112 / BE.NMBS.IC2112 etc.
+      const candidates = [];
+      prefixes.forEach(p => {
+        candidates.push(`${p}${num}`);
+        candidates.push(`BE.NMBS.${p}${num}`);
+      });
+
+      for (const id of candidates) {
+        try {
+          const details = await this.getVehicleDetails(id, dateStr);
+          if (details && details.vehicle && details.vehicle.stops && details.vehicle.stops.stop) {
+            return { vehicleId: id, dateStr, details };
+          }
+        } catch (e) {
+          // On essaie le suivant
+        }
+      }
+
+      return null;
     }
   };
 
@@ -208,10 +294,12 @@
     renderStationSelect(filter = '') {
       const select = DOM.stationSelect;
       select.innerHTML = '';
+      
       let optionsCount = 0;
 
       if (state.allStations.length > 0) {
         const filterLower = filter.toLowerCase();
+        
         const stations = state.allStations
           .filter(s => filterLower === '' || s.standardname.toLowerCase().includes(filterLower))
           .slice(0, 50)
@@ -219,13 +307,16 @@
 
         optionsCount = stations.length;
 
-        select.innerHTML = stations.map(station =>
+        const options = stations.map(station => 
           `<option value="${station.standardname}" ${station.standardname === state.station ? 'selected' : ''}>${station.standardname}</option>`
         ).join('');
+        
+        select.innerHTML = options;
       }
 
       if (filter) {
         select.style.display = 'block';
+        
         if (optionsCount === 0) {
           select.innerHTML = '<option disabled>❌ Aucune gare trouvée</option>';
         } else if (optionsCount === 50) {
@@ -237,12 +328,15 @@
     },
 
     renderOccupancy(occupancy) {
-      if (!occupancy || !occupancy.name || occupancy.name === 'unknown') return '';
+      if (!occupancy || !occupancy.name || occupancy.name === 'unknown') {
+        return '';
+      }
+
       const level = occupancy.name;
-      const cssClass = level === 'high' ? 'occ-high' :
-                       level === 'medium' ? 'occ-medium' : '';
-      const percentage = level === 'high' ? 95 :
-                         level === 'medium' ? 60 : 25;
+      const cssClass = level === 'high' ? 'occ-high' : 
+                      level === 'medium' ? 'occ-medium' : '';
+      const percentage = level === 'high' ? 95 : 
+                        level === 'medium' ? 60 : 25;
 
       return `
         <span class="occupancy ${cssClass}" title="${level}">
@@ -254,9 +348,10 @@
     },
 
     renderDisturbanceBanner() {
-      const relevant = state.disturbances
-        .filter(d => (`${d.title} ${d.description}`).toLowerCase().includes(state.station.toLowerCase()))
-        .slice(0, 3);
+      const relevant = state.disturbances.filter(d => {
+        const text = `${d.title} ${d.description}`.toLowerCase();
+        return text.includes(state.station.toLowerCase());
+      }).slice(0, 3);
 
       if (relevant.length === 0) return '';
 
@@ -274,57 +369,60 @@
       const time = Utils.formatTime(train.time);
       const platform = train.platform || '—';
       const delayMin = Math.floor(train.delay / 60);
-      const delayText = train.delay > 0
+      const delayText = train.delay > 0 
         ? `<div class="delay delayed">+${delayMin} min</div>`
         : `<div class="delay on-time">À l'heure</div>`;
-
-      const cancelled = train.canceled === '1' ||
-                        train.canceled === 1 ||
+      
+      const cancelled = train.canceled === '1' || 
+                        train.canceled === 1 || 
                         train.canceled === true;
-
+      
       const occupancy = this.renderOccupancy(train.occupancy);
-
-      // Terminus / origine
+      
       let mainStationName = null;
       const potentialSources = [
         train.direction?.name,
         train.stationinfo?.standardname,
         train.stationInfo?.name,
         train.name?.split(' ')[1]
-      ].filter(Boolean);
-
+      ].filter(n => n);
+      
       for (const source of potentialSources) {
-        if (Utils.normalizeName(source) !== Utils.normalizeName(state.station)) {
+        const currentStationNormalized = state.station.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const sourceNormalized = source.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (sourceNormalized !== currentStationNormalized) {
           mainStationName = source;
-          break;
+          break; 
         }
       }
-
+      
       let routeText = 'Destination inconnue';
+
       if (mainStationName) {
         routeText = state.mode === 'departure'
           ? `Vers ${mainStationName}`
           : `Depuis ${mainStationName}`;
       } else {
-        routeText = `Gare: ${state.station} (INFO API MANQUANTE ❌ )`;
+        routeText = `Gare: ${state.station} (INFO API MANQUANTE ❌ )`; 
       }
-
-      // Numéro de train
+      
       let number = '—';
       if (train.vehicle) {
         if (train.vehicle.shortname) {
           number = train.vehicle.shortname;
-        } else {
+        } else if (typeof train.vehicle === 'string') {
           const parts = train.vehicle.split('.');
-          if (parts.length > 0) number = parts[parts.length - 1];
+          if (parts.length > 0) {
+            number = parts[parts.length - 1];
+          }
         }
       }
-
+      
       const dateStr = Utils.getDateString(new Date(train.time * 1000));
 
       return `
-        <div class="train ${cancelled ? 'cancelled' : ''}"
-             data-vehicle="${train.vehicle}"
+        <div class="train ${cancelled ? 'cancelled' : ''}" 
+             data-vehicle="${train.vehicle}" 
              data-datestr="${dateStr}">
           <div class="left">
             <div class="train-number">${number} ${occupancy}</div>
@@ -343,122 +441,133 @@
     renderTrainDetails(details, currentStation) {
       let html = '';
 
-      // ---------- Itinéraire ----------
-      if (details.vehicle && details.vehicle.stops && details.vehicle.stops.stop) {
+      // Itinéraire
+      if (details.vehicle && details.vehicle.stops) {
         const stopsData = details.vehicle.stops.stop;
-        const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
+        
+        if (stopsData) {
+          const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
 
-        const now = Utils.nowSeconds();
-        let lastPassedIndex = -1;
+          const now = Utils.nowSeconds();
+          let lastPassedIndex = -1;
 
-        stops.forEach((stop, index) => {
-          const stopTime = parseInt(stop.time);
-          const stopDelay = parseInt(stop.delay || 0);
-          const actualTime = stopTime + stopDelay;
-          if (actualTime <= now) lastPassedIndex = index;
-        });
+          stops.forEach((stop, index) => {
+            const stopTime = parseInt(stop.time);
+            const stopDelay = parseInt(stop.delay || 0);
+            const actualTime = stopTime + stopDelay;
+            if (actualTime <= now) {
+              lastPassedIndex = index;
+            }
+          });
 
-        html += '<h4>Itinéraire</h4><div class="metro-line">';
-
-        stops.forEach((stop, index) => {
-          const isCurrent = Utils.normalizeName(stop.station) === Utils.normalizeName(currentStation);
-          const isFirst = index === 0;
-          const isLast = index === stops.length - 1;
-          const isTrainHere = index === lastPassedIndex;
-          const isPassed = index < lastPassedIndex;
-
-          const delay = parseInt(stop.delay || 0);
-          const delayMin = Math.floor(delay / 60);
-          const delayClass = delay > 0 ? 'has-delay' : '';
-          const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
-
-          const isCanceled = stop.canceled === '1' || stop.canceled === 1;
-          const cancelClass = isCanceled ? 'canceled' : '';
-
-          const platform = stop.platform
-            ? ` <span class="stop-platform">Voie ${stop.platform}</span>`
-            : '';
-
-          html += `
-            <div class="metro-stop ${isCurrent ? 'current' : ''} ${isFirst ? 'first' : ''} ${isLast ? 'last' : ''} ${delayClass} ${cancelClass} ${isTrainHere ? 'train-position' : ''} ${isPassed ? 'passed' : ''}">
-              <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
-              <div class="metro-info">
-                <div class="metro-station">
-                  <span class="goto-station" data-station="${stop.station}">
-                    ${stop.station}
-                  </span>
-                  ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}
-                  ${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}
-                  ${platform}
-                </div>
-                <div class="metro-time">
-                  ${Utils.formatTime(stop.time)}${delayText}
+          html += '<h4>Itinéraire</h4><div class="metro-line">';
+          
+          stops.forEach((stop, index) => {
+            const isCurrent = stop.station.toLowerCase() === (currentStation || '').toLowerCase();
+            const isFirst = index === 0;
+            const isLast = index === stops.length - 1;
+            const isTrainHere = index === lastPassedIndex;
+            const isPassed = index < lastPassedIndex;
+            
+            const delay = parseInt(stop.delay || 0);
+            const delayMin = Math.floor(delay / 60);
+            const delayClass = delay > 0 ? 'has-delay' : '';
+            const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
+            
+            const isCanceled = stop.canceled === '1' || stop.canceled === 1;
+            const cancelClass = isCanceled ? 'canceled' : '';
+            const platform = stop.platform ? ` <span class="stop-platform">Voie ${stop.platform}</span>` : '';
+            
+            html += `
+              <div class="metro-stop ${isCurrent ? 'current' : ''} ${isFirst ? 'first' : ''} ${isLast ? 'last' : ''} ${delayClass} ${cancelClass} ${isTrainHere ? 'train-position' : ''} ${isPassed ? 'passed' : ''}">
+                <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
+                <div class="metro-info">
+                  <div class="metro-station">
+                    <span class="goto-station" data-station="${stop.station}">${stop.station}</span>
+                    ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}
+                    ${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}
+                    ${platform}
+                  </div>
+                  <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
                 </div>
               </div>
-            </div>
-          `;
-        });
-
-        html += '</div>';
+            `;
+          });
+          
+          html += '</div>';
+        } else {
+          html += '<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>';
+        }
       } else {
         html += '<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>';
       }
 
-      // ---------- Composition ----------
-      if (details.composition && details.composition.composition &&
-          details.composition.composition.segments &&
-          details.composition.composition.segments.segment) {
-
-        const segData = details.composition.composition.segments.segment;
-        const segments = Array.isArray(segData) ? segData : [segData];
-
-        html += `<h4 style="margin-top:16px">Composition</h4>`;
-        html += `<div class="train-composition">`;
-
-        const seenUnits = new Set();
-
-        segments.forEach(seg => {
-          if (!seg.composition || !seg.composition.units || !seg.composition.units.unit) return;
-
-          const unitsData = seg.composition.units.unit;
-          const units = Array.isArray(unitsData) ? unitsData : [unitsData];
-
-          units.forEach(unit => {
-            const materialType = unit.materialType?.parent_type || unit.materialType || '?';
-            const unitId = unit.id || `${materialType}_${Math.random()}`;
-            if (seenUnits.has(unitId)) return;
-            seenUnits.add(unitId);
-
-            const typeUpper = materialType.toUpperCase();
-            let icon = '🚃';
-            let label = 'Voiture';
-            let cssClass = 'wagon';
-
-            if (typeUpper.includes('HLE') || materialType.toLowerCase().includes('loco')) {
-              icon = '🚂';
-              label = 'Locomotive';
-              cssClass = 'loco';
-            } else if (typeUpper.includes('HVP') || typeUpper.includes('HVR')) {
-              icon = '🎛️';
-              label = 'Voiture pilote';
-              cssClass = 'pilot';
-            } else if (typeUpper.includes('AM')) {
-              icon = '🚊';
-              label = 'Automotrice';
-              cssClass = 'emu';
+      // Composition
+      if (details.composition) {
+        const comp = details.composition.composition;
+        
+        if (comp && comp.segments && comp.segments.segment) {
+          const segments = Array.isArray(comp.segments.segment) 
+            ? comp.segments.segment 
+            : [comp.segments.segment];
+          
+          html += `<h4 style="margin-top:16px">Composition</h4>`;
+          html += `<div class="train-composition">`;
+          
+          const seenUnits = new Set();
+          
+          segments.forEach((seg) => {
+            if (seg.composition && seg.composition.units) {
+              const units = Array.isArray(seg.composition.units.unit)
+                ? seg.composition.units.unit
+                : [seg.composition.units.unit];
+              
+              units.forEach(unit => {
+                const materialType = unit.materialType?.parent_type || unit.materialType || '?';
+                const unitId = unit.id || `${materialType}_${Math.random()}`;
+                
+                if (seenUnits.has(unitId)) return;
+                seenUnits.add(unitId);
+                
+                const typeUpper = materialType.toUpperCase();
+                let icon = '🚃';
+                let label = 'Voiture';
+                let cssClass = 'wagon';
+                
+                if (typeUpper.includes('HLE') || materialType.toLowerCase().includes('loco')) {
+                  icon = '🚂';
+                  label = 'Locomotive';
+                  cssClass = 'loco';
+                } else if (typeUpper.includes('HVP') || typeUpper.includes('HVR')) {
+                  icon = '🎛️';
+                  label = 'Voiture pilote';
+                  cssClass = 'pilot';
+                } else if (typeUpper.match(/^(M|I|B)\d+/)) {
+                  icon = '🚃';
+                  label = 'Voiture';
+                  cssClass = 'wagon';
+                } else if (typeUpper.includes('AM')) {
+                  icon = '🚊';
+                  label = 'Automotrice';
+                  cssClass = 'emu';
+                }
+                
+                html += `
+                  <div class="train-unit ${cssClass}" title="${label}">
+                    <div class="unit-icon">${icon}</div>
+                    <div class="unit-type">${materialType}</div>
+                  </div>
+                `;
+              });
             }
-
-            html += `
-              <div class="train-unit ${cssClass}" title="${label}">
-                <div class="unit-icon">${icon}</div>
-                <div class="unit-type">${materialType}</div>
-              </div>
-            `;
           });
-        });
-
-        html += `</div>`;
-        html += `<p style="margin-top:8px;font-size:11px;color:#64748b;text-align:center">← Sens de marche (tête du train à gauche)</p>`;
+          
+          html += `</div>`;
+          html += `<p style="margin-top:8px;font-size:11px;color:#64748b;text-align:center">← Sens de marche (tête du train à gauche)</p>`;
+        } else {
+          html += `<h4 style="margin-top:16px">Composition</h4>`;
+          html += `<div class="info">ℹ️ La composition n'est pas disponible pour ce train</div>`;
+        }
       } else {
         html += `<h4 style="margin-top:16px">Composition</h4>`;
         html += `<div class="info">ℹ️ Données de composition non disponibles</div>`;
@@ -473,7 +582,7 @@
 
       const key = state.mode === 'departure' ? 'departures' : 'arrivals';
       const rawTrains = data[key];
-
+      
       if (!rawTrains) {
         const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
         container.innerHTML = `
@@ -575,10 +684,10 @@
     },
 
     handleDocumentClick(event) {
-      const isSelect = DOM.stationSelect.contains(event.target);
-      const isSearch = DOM.stationSearch.contains(event.target);
-
-      if (!isSelect && !isSearch) {
+      const isSelect = DOM.stationSelect && DOM.stationSelect.contains(event.target);
+      const isSearch = DOM.stationSearch && DOM.stationSearch.contains(event.target);
+      
+      if (!isSelect && !isSearch && DOM.stationSelect) {
         DOM.stationSelect.style.display = 'none';
       }
     },
@@ -617,7 +726,7 @@
             const lat = parseFloat(station.locationY);
             const lon = parseFloat(station.locationX);
             const distance = Utils.getDistance(userLat, userLon, lat, lon);
-
+            
             if (distance < minDistance) {
               minDistance = distance;
               nearestStation = station;
@@ -628,8 +737,8 @@
         if (nearestStation) {
           state.station = nearestStation.standardname;
           App.saveState();
-          App.init(true);
-
+          App.init();
+          
           DOM.stationNameText.textContent = `${nearestStation.standardname} (${minDistance.toFixed(1)} km)`;
           setTimeout(() => {
             DOM.stationNameText.textContent = nearestStation.standardname;
@@ -651,25 +760,38 @@
       }
     },
 
-    // 👉 Nouveau : clic sur une gare dans l’itinéraire
+    // 🆕 Clic sur une gare dans l'itinéraire → horaires de cette gare
     handleStationClickFromItinerary(event) {
-      const target = event.target.closest('.goto-station');
-      if (!target) return;
+      const el = event.target.closest('.goto-station');
+      if (!el) return;
 
-      const station = target.dataset.station;
+      const station = el.dataset.station;
       if (!station) return;
 
-      console.log('🔀 Navigation vers la gare depuis itinéraire :', station);
+      console.log('🔀 Navigation vers la gare depuis l’itinéraire :', station);
 
       state.station = station;
       App.saveState();
       App.init(true);
 
-      // Fermer les détails des trains
-      document.querySelectorAll('.train.expanded').forEach(el => {
-        el.classList.remove('expanded');
-        el.nextElementSibling.innerHTML = '';
+      document.querySelectorAll('.train.expanded').forEach(train => {
+        train.classList.remove('expanded');
+        const details = train.nextElementSibling;
+        if (details) details.innerHTML = '';
       });
+    },
+
+    // 🆕 Recherche globale par numéro (champ trainSearch, touche Entrée)
+    async handleTrainGlobalSearchKey(event) {
+      if (event.key !== 'Enter') return;
+      if (!DOM.trainSearch) return;
+
+      const raw = DOM.trainSearch.value || '';
+      const num = raw.replace(/\D/g, '');
+      if (!num) return;
+
+      event.preventDefault();
+      App.searchTrainGlobally(num);
     }
   };
 
@@ -681,15 +803,33 @@
     },
 
     setupListeners() {
-      DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
-      DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
-      DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
-      DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
-      DOM.refreshBtn.addEventListener('click', () => this.init(true));
-      DOM.trainsList.addEventListener('click', Events.handleTrainClick);
-      DOM.locateBtn.addEventListener('click', Events.handleLocate);
+      if (DOM.stationSearch) {
+        DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
+      }
+      if (DOM.stationSelect) {
+        DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
+      }
+      if (DOM.tabDeparture) {
+        DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
+      }
+      if (DOM.tabArrival) {
+        DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
+      }
+      if (DOM.refreshBtn) {
+        DOM.refreshBtn.addEventListener('click', () => this.init(true));
+      }
+      if (DOM.trainsList) {
+        DOM.trainsList.addEventListener('click', Events.handleTrainClick);
+      }
+      if (DOM.locateBtn) {
+        DOM.locateBtn.addEventListener('click', Events.handleLocate);
+      }
       document.addEventListener('click', Events.handleDocumentClick);
       document.addEventListener('click', Events.handleStationClickFromItinerary);
+
+      if (DOM.trainSearch) {
+        DOM.trainSearch.addEventListener('keydown', Events.handleTrainGlobalSearchKey);
+      }
     },
 
     async tryGeolocation() {
@@ -737,7 +877,7 @@
             const lat = parseFloat(station.locationY);
             const lon = parseFloat(station.locationX);
             const distance = Utils.getDistance(userLat, userLon, lat, lon);
-
+            
             if (distance < minDistance) {
               minDistance = distance;
               nearestStation = station;
@@ -762,7 +902,7 @@
 
     async init(forceRefresh = false) {
       if (state.isFetching && !forceRefresh) return;
-
+      
       state.isFetching = true;
       UI.updateHeader();
       UI.showLoading();
@@ -779,33 +919,94 @@
         }
 
         state.disturbances = await API.getDisturbances();
-
+        
         const data = await API.getStationBoard(state.station, state.mode);
         await UI.renderTrainsList(data);
 
         state.autoRefreshHandle = setTimeout(
-          () => this.init(),
+          () => this.init(), 
           CONFIG.AUTO_REFRESH
         );
 
       } catch (error) {
         console.error('Erreur initialisation:', error);
-
-        const message = error.message.includes('HTTP 404')
+        
+        const message = error.message && error.message.includes('HTTP 404')
           ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
           : `Impossible de charger les horaires. Veuillez réessayer. (${error.message})`;
-
+        
         UI.showError(message);
       } finally {
         state.isFetching = false;
       }
     },
 
+    // 🆕 Recherche globale du train → affichage direct de l’itinéraire
+    async searchTrainGlobally(num) {
+      if (state.autoRefreshHandle) {
+        clearTimeout(state.autoRefreshHandle);
+        state.autoRefreshHandle = null;
+      }
+
+      UI.showLoading();
+
+      try {
+        const result = await API.findTrainByNumber(num);
+
+        if (!result) {
+          UI.showError(`Aucun train trouvé avec le numéro ${num}`);
+          return;
+        }
+
+        const { vehicleId, details } = result;
+
+        // Déduire origine / destination
+        let origin = '';
+        let destination = '';
+        if (details.vehicle && details.vehicle.stops && details.vehicle.stops.stop) {
+          const stopsData = details.vehicle.stops.stop;
+          const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
+          if (stops.length > 0) {
+            origin = stops[0].station || '';
+            destination = stops[stops.length - 1].station || '';
+          }
+        }
+
+        // Numéro court pour affichage
+        let shortId = vehicleId;
+        if (vehicleId.includes('.')) {
+          const parts = vehicleId.split('.');
+          shortId = parts[parts.length - 1];
+        }
+
+        DOM.trainsList.innerHTML = `
+          <div class="info">
+            Résultat pour le train <strong>${shortId}</strong>
+            ${origin && destination ? ` (${origin} → ${destination})` : ''}
+          </div>
+          <div class="train expanded global-train">
+            <div class="left">
+              <div class="train-number">${shortId}</div>
+              ${origin && destination ? `<div class="route">${origin} → ${destination}</div>` : ''}
+            </div>
+          </div>
+          <div class="details global-details">
+            ${UI.renderTrainDetails(details, origin || state.station)}
+          </div>
+        `;
+
+      } catch (error) {
+        console.error('Erreur recherche train global:', error);
+        UI.showError(`Erreur lors de la recherche du train ${num} (${error.message})`);
+      }
+    },
+
     async start() {
       this.setupListeners();
+      
       const initPromise = this.init();
       const geolocated = await this.tryGeolocation();
-
+      
       if (geolocated) {
         await this.init(true);
       } else {
@@ -820,7 +1021,7 @@
 })();
 
 /* ============================================================
-   ENREGISTREMENT DU SERVICE WORKER (PWA + HOT UPDATE)
+   Enregistrement du Service Worker (PWA + hot update)
    ============================================================ */
 
 if ('serviceWorker' in navigator) {
@@ -828,15 +1029,13 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js')
       .then(reg => {
         console.log('Service Worker enregistré');
-
-        // Détection d'une nouvelle version du SW
+        
         reg.addEventListener('updatefound', () => {
           const installingWorker = reg.installing;
           if (!installingWorker) return;
 
           installingWorker.addEventListener('statechange', () => {
             if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // On demande au nouveau SW de passer tout de suite en active
               installingWorker.postMessage({ type: 'SKIP_WAITING' });
             }
           });
@@ -844,15 +1043,14 @@ if ('serviceWorker' in navigator) {
       })
       .catch(err => console.log('Erreur Service Worker:', err));
   });
-
-  // Messages envoyés par le Service Worker
+  
   navigator.serviceWorker.addEventListener('message', event => {
-    if (event.data?.type === 'CONTROLLER_CHANGE') {
+    if (event.data && event.data.type === 'CONTROLLER_CHANGE') {
       console.log('Nouveau Service Worker activé. Rechargement forcé.');
       window.location.reload();
     }
 
-    if (event.data?.type === 'UPDATE_READY') {
+    if (event.data && event.data.type === 'UPDATE_READY') {
       console.log('🔥 Nouvelle version disponible → rechargement');
       window.location.reload();
     }
