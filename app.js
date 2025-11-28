@@ -379,14 +379,14 @@
     if (mainStationName) {
         if (state.mode === 'departure') {
             // AJOUT DU MARQUEUR DE SUCCÈS
-            routeText = `Vers ${mainStationName} ✅`; 
+            routeText = `Vers ${mainStationName}`; 
         } else {
             // AJOUT DU MARQUEUR DE SUCCÈS
-            routeText = `Depuis ${mainStationName} ✅`; 
+            routeText = `Depuis ${mainStationName}`; 
         }
     } else {
         // FALLBACK AVEC MARQUEUR DE VERSION POUR DIAGNOSTIC
-        routeText = `Gare: ${state.station} (INFO API MANQUANTE ❌ v6)`; 
+        routeText = `Gare: ${state.station} (INFO API MANQUANTE ❌ )`; 
     }
     
     // CORRECTION #2: Extraire le numéro court du train.
