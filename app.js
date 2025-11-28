@@ -338,7 +338,7 @@
       `;
     },
 
-    renderTrain(train) {
+  renderTrain(train) {
   const time = Utils.formatTime(train.time);
   const number = train.vehicleinfo?.shortname || train.vehicle || '—';
   const platform = train.platform || '—';
@@ -357,10 +357,10 @@
   let routeText = '';
   if (train.direction) {
     if (state.mode === 'departure') {
-      // Mode départ : afficher "Station actuelle → Terminus"
+      // Mode départ : Station actuelle → Terminus
       routeText = `${state.station} → ${train.direction.name}`;
     } else {
-      // Mode arrivée : afficher "Origine → Station actuelle"
+      // Mode arrivée : Origine → Station actuelle
       routeText = `${train.direction.name} → ${state.station}`;
     }
   } else {
@@ -376,6 +376,14 @@
       <div class="left">
         <div class="train-number">${number} ${occupancy}</div>
         <div class="route">${routeText}</div>
+            <div class="platform">Voie: ${platform}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="time">${time}</div>
+            ${delayText}
+          </div>
+        </div>
+        <div class="details"></div>
       `;
     },
 
@@ -877,3 +885,12 @@
   App.start();
 
 })();
+
+// Enregistrement du Service Worker pour PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js')
+      .then(reg => console.log('Service Worker enregistré'))
+      .catch(err => console.log('Erreur Service Worker:', err));
+  });
+}
