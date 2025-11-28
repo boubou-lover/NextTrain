@@ -12,8 +12,63 @@ body{font-family:Inter, Roboto, system-ui, -apple-system, 'Segoe UI', Roboto, 'H
 
 .station-name{flex:1;font-weight:600;background:rgba(255,255,255,0.08);padding:10px;border-radius:10px;display:flex;align-items:center;gap:8px}
 .controls{display:flex;gap:8px}
-button,.btn{background:#fff;color:#123;color:inherit;border:none;padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:600}
-button[disabled]{opacity:.6;cursor:not-allowed}
+/* ---------- Buttons ---------- */
+button, .btn{
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  color: #1e3a8a;
+  border: 2px solid rgba(255,255,255,0.3);
+  padding: 10px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button:hover, .btn:hover{
+  background: linear-gradient(135deg, #ffffff 0%, #ffffff 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+  border-color: rgba(255,255,255,0.5);
+}
+
+button:active, .btn:active{
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+button[disabled], .btn[disabled]{
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+#refreshBtn{
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border-color: rgba(255,255,255,0.2);
+}
+
+#refreshBtn:hover{
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  box-shadow: 0 6px 20px rgba(16,185,129,0.3);
+}
+
+#locateBtn{
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border-color: rgba(255,255,255,0.2);
+}
+
+#locateBtn:hover{
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  box-shadow: 0 6px 20px rgba(59,130,246,0.3);
+}
 
 .search{width:100%;padding:10px;border-radius:10px;border:none;font-size:14px;margin-top:12px}
 .station-select{width:100%;padding:10px;border-radius:10px;border:none;margin-top:8px;background:rgba(255,255,255,0.08);color:#fff}
