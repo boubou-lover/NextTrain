@@ -9,7 +9,7 @@
     API_BASE: 'https://api.irail.be',
     CACHE_TTL: 5 * 60 * 1000,
     AUTO_REFRESH: 60000,
-    DEBOUNCE_DELAY: 300,
+    DEBOUNCE_DELAY: 150, // Réduit de 300ms à 150ms
     FETCH_TIMEOUT: 7000
   };
 
@@ -265,56 +265,35 @@
       select.innerHTML = '';
       
       let optionsCount = 0;
-      const fragment = document.createDocumentFragment();
 
       // Si on a des stations de l'API
       if (state.allStations.length > 0) {
+        const filterLower = filter.toLowerCase();
+        
+        // Filtrer et limiter à 50 résultats pour la performance
         const stations = state.allStations
-          .filter(s => !filter || s.standardname.toLowerCase().includes(filter.toLowerCase()))
+          .filter(s => filterLower === '' || s.standardname.toLowerCase().includes(filterLower))
+          .slice(0, 50) // Limiter à 50 résultats
           .sort((a, b) => a.standardname.localeCompare(b.standardname));
 
-        stations.forEach(station => {
-          const option = document.createElement('option');
-          option.value = station.standardname;
-          option.textContent = station.standardname;
-          option.selected = station.standardname === state.station;
-          fragment.appendChild(option);
-          optionsCount++;
-        });
-      } else {
-        // Fallback si l'API n'a pas encore chargé
-        Object.entries(STATIONS).forEach(([category, stations]) => {
-          const optgroup = document.createElement('optgroup');
-          optgroup.label = category;
-          
-          stations.forEach(station => {
-            if (!filter || station.toLowerCase().includes(filter.toLowerCase())) {
-              const option = document.createElement('option');
-              option.value = station;
-              option.textContent = station;
-              option.selected = station === state.station;
-              optgroup.appendChild(option);
-              optionsCount++;
-            }
-          });
+        optionsCount = stations.length;
 
-          if (optgroup.children.length > 0) {
-            fragment.appendChild(optgroup);
-          }
-        });
+        // Utiliser innerHTML plus rapide que createElement
+        const options = stations.map(station => 
+          `<option value="${station.standardname}" ${station.standardname === state.station ? 'selected' : ''}>${station.standardname}</option>`
+        ).join('');
+        
+        select.innerHTML = options;
       }
-
-      select.appendChild(fragment);
 
       // Gestion de l'affichage
       if (filter) {
         select.style.display = 'block';
         
         if (optionsCount === 0) {
-          const noResult = document.createElement('option');
-          noResult.disabled = true;
-          noResult.textContent = '❌ Aucune gare trouvée';
-          select.appendChild(noResult);
+          select.innerHTML = '<option disabled>❌ Aucune gare trouvée</option>';
+        } else if (optionsCount === 50) {
+          select.innerHTML += '<option disabled>... (affichage limité à 50 résultats)</option>';
         }
       } else {
         select.style.display = 'none';
@@ -393,7 +372,7 @@
                 ? `${state.station} ${direction}` 
                 : `${direction} ${state.station}`}
             </div>
-            <div class="platform">Quai: ${platform}</div>
+            <div class="platform">Voie: ${platform}</div>
           </div>
           <div style="text-align:right">
             <div class="time">${time}</div>
