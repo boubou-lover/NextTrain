@@ -601,44 +601,46 @@
     },
 
     async renderTrainsList(data) {
-      const container = DOM.trainsList;
-      if (!container) return;
+  const container = DOM.trainsList;
+  if (!container) return;
 
-      container.innerHTML = '';
+  container.innerHTML = '';
 
-      const key = state.mode === 'departure' ? 'departures' : 'arrivals';
-      const rawTrains = data[key];
-      
-      if (!rawTrains) {
-        const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
-        container.innerHTML = `
-          <div class="info">
-            Aucun ${modeText} prévu pour la gare de ${state.station}.
-          </div>
-        `;
-        return;
-      }
+  const key = state.mode === 'departure' ? 'departures' : 'arrivals';
+  const rawTrains = data[key];
+  
+  if (!rawTrains) {
+    const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
+    container.innerHTML = `
+      <div class="info">
+        Aucun ${modeText} prévu pour la gare de ${state.station}.
+      </div>
+    `;
+    return;
+  }
 
-      const trainsKey = state.mode === 'departure' ? 'departure' : 'arrival';
-      const trains = rawTrains[trainsKey] || [];
-      const trainsArray = Array.isArray(trains) ? trains : (trains ? [trains] : []);
+  const trainsKey = state.mode === 'departure' ? 'departure' : 'arrival';
+  const trains = rawTrains[trainsKey] || [];
+  const trainsArray = Array.isArray(trains) ? trains : (trains ? [trains] : []);
 
-      container.innerHTML += this.renderDisturbanceBanner();
+  // 🔁 IMPORTANT : on appelle explicitement UI.*, plus "this"
+  container.innerHTML += UI.renderDisturbanceBanner();
 
-      if (trainsArray.length === 0) {
-        const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
-        container.innerHTML += `
-          <div class="info">
-            Aucun ${modeText} prévu pour la gare de ${state.station}.
-          </div>
-        `;
-        return;
-      }
+  if (trainsArray.length === 0) {
+    const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
+    container.innerHTML += `
+      <div class="info">
+        Aucun ${modeText} prévu pour la gare de ${state.station}.
+      </div>
+    `;
+    return;
+  }
 
-      trainsArray.forEach(train => {
-        container.innerHTML += this.renderTrain(train);
-      });
-    },
+  trainsArray.forEach(train => {
+    container.innerHTML += UI.renderTrain(train);
+  });
+},
+
 
     showLoading() {
       if (!DOM.trainsList) return;
