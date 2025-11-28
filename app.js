@@ -1,5 +1,5 @@
 /* ============================================================
-   NextTrain – app.js (Version Complète et Optimisée - v5)
+   NextTrain – app.js (Version Complète et Optimisée - v6)
    ============================================================ */
 
 (function(){
@@ -337,7 +337,7 @@
       `;
     },
 
-renderTrain(train) {
+  renderTrain(train) {
     const time = Utils.formatTime(train.time);
     const platform = train.platform || '—';
     const delayMin = Math.floor(train.delay / 60);
@@ -359,13 +359,16 @@ renderTrain(train) {
       train.direction?.name, // Source principale
       train.stationinfo?.standardname, // Source secondaire fiable
       train.stationInfo?.name, // Variation de casse si l'API est incohérente
-      train.name?.split(' ')[1] // Tente d'extraire de "IC Bruxelles" -> "Bruxelles" (peu fiable, dernier recours)
+      train.name?.split(' ')[1] // Tente d'extraire de "IC Bruxelles" -> "Bruxelles"
     ].filter(n => n); // Filtrer les valeurs nulles ou vides
     
     // Trouver la première source qui n'est PAS la gare actuelle
     for (const source of potentialSources) {
-        // La comparaison est faite en minuscules pour ignorer la casse
-        if (source && source.toLowerCase() !== state.station.toLowerCase()) {
+        // La comparaison normalise la casse et ignore les accents pour être sûre
+        const currentStationNormalized = state.station.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const sourceNormalized = source.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        
+        if (sourceNormalized !== currentStationNormalized) {
             mainStationName = source;
             break; 
         }
@@ -375,21 +378,25 @@ renderTrain(train) {
 
     if (mainStationName) {
         if (state.mode === 'departure') {
-            routeText = `Vers ${mainStationName}`; 
+            // AJOUT DU MARQUEUR DE SUCCÈS
+            routeText = `Vers ${mainStationName} ✅`; 
         } else {
-            routeText = `Depuis ${mainStationName}`; 
+            // AJOUT DU MARQUEUR DE SUCCÈS
+            routeText = `Depuis ${mainStationName} ✅`; 
         }
     } else {
-        // Fallback clair pour indiquer que l'info est manquante
-        routeText = `Gare: ${state.station} (Info manquante ⚠️)`; 
+        // FALLBACK AVEC MARQUEUR DE VERSION POUR DIAGNOSTIC
+        routeText = `Gare: ${state.station} (INFO API MANQUANTE ❌ v6)`; 
     }
     
     // CORRECTION #2: Extraire le numéro court du train.
     let number = '—';
     if (train.vehicle) {
+      // Priorité 1: shortname (ex: IC2112)
       if (train.vehicle.shortname) {
         number = train.vehicle.shortname;
       } 
+      // Priorité 2: Extraire le dernier segment de l'ID long (ex: IC2112 de BE.NMBS.IC2112)
       else {
         const parts = train.vehicle.split('.');
         if (parts.length > 0) {
@@ -417,7 +424,7 @@ renderTrain(train) {
           <div class="details"></div>
         `;
       },
-      
+
     renderTrainDetails(details, currentStation) {
       let html = '';
 
