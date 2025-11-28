@@ -1,5 +1,5 @@
 /* ============================================================
-   NextTrain – app.js (Version Complète et Optimisée - v4)
+   NextTrain – app.js (Version Complète et Optimisée - v5)
    ============================================================ */
 
 (function(){
@@ -337,7 +337,6 @@
       `;
     },
 
-// ...
   renderTrain(train) {
     const time = Utils.formatTime(train.time);
     const platform = train.platform || '—';
@@ -354,27 +353,30 @@
     
     // CORRECTION #1: Afficher la Terminus/Origine au lieu de la gare sélectionnée
     let routeText = 'Destination inconnue';
-    
-    // Tenter d'abord d'utiliser la donnée "direction"
-    let mainStationName = train.direction?.name;
-    
-    // Si la direction n'est pas disponible ou est la gare actuelle (cas d'erreur)
-    // On essaie d'utiliser la variable du train lui-même qui pointe vers le terminus/l'origine
-    if (!mainStationName || mainStationName === state.station) {
-      mainStationName = train.stationinfo?.standardname;
+    let mainStationName = null;
+
+    // Priorité 1: Utiliser la station de l'objet "direction" (le plus propre)
+    if (train.direction && train.direction.name) {
+        mainStationName = train.direction.name;
+    } 
+    // Priorité 2: Utiliser la station de l'objet "stationinfo" (très fiable dans ce contexte)
+    else if (train.stationinfo && train.stationinfo.standardname) {
+        mainStationName = train.stationinfo.standardname;
     }
     
+    // Si nous avons réussi à extraire un nom de gare
     if (mainStationName) {
-      if (state.mode === 'departure') {
-        routeText = `Vers ${mainStationName}`; 
-      } else {
-        routeText = `Depuis ${mainStationName}`; 
-      }
+        if (state.mode === 'departure') {
+            routeText = `Vers ${mainStationName}`; 
+        } else {
+            routeText = `Depuis ${mainStationName}`; 
+        }
     } else {
-      routeText = `Gare: ${state.station}`; 
+        // Fallback avec une indication d'erreur
+        routeText = `Gare: ${state.station} (Infos manquantes)`; 
     }
     
-    // CORRECTION #2: Extraire le numéro court du train. (Répétée pour s'assurer que vous l'avez)
+    // CORRECTION #2: Extraire le numéro court du train.
     let number = '—';
     if (train.vehicle) {
       // Priorité 1: shortname (ex: IC2112)
@@ -409,7 +411,6 @@
           <div class="details"></div>
         `;
       },
-// ...,
 
     renderTrainDetails(details, currentStation) {
       let html = '';
@@ -863,4 +864,58 @@
         state.disturbances = await API.getDisturbances();
         
         // Charger horaires
-        const data = await API.getStationBoard(state
+        const data = await API.getStationBoard(state.station, state.mode);
+        
+        // Afficher les trains
+        await UI.renderTrainsList(data);
+
+        // Programmer le prochain refresh
+        state.autoRefreshHandle = setTimeout(
+          () => this.init(), 
+          CONFIG.AUTO_REFRESH
+        );
+
+      } catch (error) {
+        console.error('Erreur initialisation:', error);
+        
+        const message = error.message.includes('HTTP 404')
+          ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
+          : `Impossible de charger les horaires. Veuillez réessayer. (${error.message})`;
+        
+        UI.showError(message);
+      } finally {
+        state.isFetching = false;
+      }
+    },
+
+    async start() {
+      this.setupListeners();
+      
+      // Démarrer le chargement initial
+      const initPromise = this.init();
+      
+      // En parallèle, essayer la géolocalisation
+      const geolocated = await this.tryGeolocation();
+      
+      // Si géolocalisé, relancer avec la nouvelle station
+      if (geolocated) {
+        await this.init(true);
+      } else {
+        await initPromise;
+      }
+    }
+  };
+
+  // ---------- DÉMARRAGE ----------
+  App.start();
+
+})();
+
+// Enregistrement du Service Worker pour PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/service-worker.js')
+      .then(reg => console.log('Service Worker enregistré'))
+      .catch(err => console.log('Erreur Service Worker:', err));
+  });
+}
