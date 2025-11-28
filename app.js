@@ -928,7 +928,33 @@
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/service-worker.js')
-      .then(reg => console.log('Service Worker enregistré'))
+      .then(reg => {
+        console.log('Service Worker enregistré');
+        
+        // --- LOGIQUE D'UPDATE AUTOMATIQUE ---
+        reg.addEventListener('updatefound', () => {
+          const installingWorker = reg.installing;
+          installingWorker.addEventListener('statechange', () => {
+            if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // Le nouveau Service Worker est installé et en attente (waiting).
+              // Nous forçons son activation sans attendre la fermeture de la page.
+              installingWorker.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        });
+        // ------------------------------------
+        
+      })
       .catch(err => console.log('Erreur Service Worker:', err));
+  });
+  
+  // Écoute des messages du Service Worker
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data && event.data.type === 'CONTROLLER_CHANGE') {
+      // Le nouveau Service Worker a pris le contrôle (il est passé de 'waiting' à 'active').
+      // Nous forçons un rechargement pour charger la nouvelle version de l'App.
+      console.log('Nouveau Service Worker activé. Rechargement forcé.');
+      window.location.reload();
+    }
   });
 }
