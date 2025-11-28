@@ -339,51 +339,43 @@
     },
 
     renderTrain(train) {
-      const time = Utils.formatTime(train.time);
-      const number = train.vehicleinfo?.shortname || train.vehicle || '—';
-      const platform = train.platform || '—';
-      const delayMin = Math.floor(train.delay / 60);
-      const delayText = train.delay > 0 
-        ? `<div class="delay delayed">+${delayMin} min</div>`
-        : `<div class="delay on-time">À l'heure</div>`;
-      
-      const cancelled = train.canceled === '1' || 
-                       train.canceled === 1 || 
-                       train.canceled === true;
-      
-      const occupancy = this.renderOccupancy(train.occupancy);
-      
-      // Direction correcte selon le mode
-      let routeText = '';
-      if (train.direction) {
-        if (state.mode === 'departure') {
-          // Mode départ : afficher "Station actuelle → Terminus"
-          routeText = `${state.station} → ${train.direction.name}`;
-        } else {
-          // Mode arrivée : afficher "Origine → Station actuelle"
-          routeText = `${train.direction.name} → ${state.station}`;
-        }
-      } else {
-        routeText = state.station;
-      }
-      
-      const dateStr = Utils.getDateString(new Date(train.time * 1000));
+  const time = Utils.formatTime(train.time);
+  const number = train.vehicleinfo?.shortname || train.vehicle || '—';
+  const platform = train.platform || '—';
+  const delayMin = Math.floor(train.delay / 60);
+  const delayText = train.delay > 0 
+    ? `<div class="delay delayed">+${delayMin} min</div>`
+    : `<div class="delay on-time">À l'heure</div>`;
+  
+  const cancelled = train.canceled === '1' || 
+                   train.canceled === 1 || 
+                   train.canceled === true;
+  
+  const occupancy = this.renderOccupancy(train.occupancy);
+  
+  // Direction correcte selon le mode
+  let routeText = '';
+  if (train.direction) {
+    if (state.mode === 'departure') {
+      // Mode départ : afficher "Station actuelle → Terminus"
+      routeText = `${state.station} → ${train.direction.name}`;
+    } else {
+      // Mode arrivée : afficher "Origine → Station actuelle"
+      routeText = `${train.direction.name} → ${state.station}`;
+    }
+  } else {
+    routeText = state.station;
+  }
+  
+  const dateStr = Utils.getDateString(new Date(train.time * 1000));
 
-      return `
-        <div class="train ${cancelled ? 'cancelled' : ''}" 
-             data-vehicle="${train.vehicle}" 
-             data-datestr="${dateStr}">
-          <div class="left">
-            <div class="train-number">${number} ${occupancy}</div>
-            <div class="route">${routeText}</div>
-            <div class="platform">Voie: ${platform}</div>
-          </div>
-          <div style="text-align:right">
-            <div class="time">${time}</div>
-            ${delayText}
-          </div>
-        </div>
-        <div class="details"></div>
+  return `
+    <div class="train ${cancelled ? 'cancelled' : ''}" 
+         data-vehicle="${train.vehicle}" 
+         data-datestr="${dateStr}">
+      <div class="left">
+        <div class="train-number">${number} ${occupancy}</div>
+        <div class="route">${routeText}</div>
       `;
     },
 
