@@ -1,4 +1,7 @@
-const CACHE_NAME = 'nexttrain-v6';
+// === Service Worker – Hot Update Instantané ===
+// Change juste ce numéro à chaque nouvelle version
+const CACHE_NAME = 'nexttrain-v8';
+
 const urlsToCache = [
   '/',
   '/index.html',
@@ -8,37 +11,45 @@ const urlsToCache = [
   '/icon-512.png'
 ];
 
+// INSTALL — met le nouveau cache et active immédiatement
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache))
   );
+
+  self.skipWaiting(); // 🔥 active le SW immédiatement — hot update
 });
 
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => response || fetch(event.request))
-  );
-});
-
-self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
-
+// ACTIVATE — supprime les vieux caches + prend le contrôle
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames
-          .filter(c => c !== CACHE_NAME)
-          .map(c => caches.delete(c))
-      );
-    }).then(() =>
-      self.clients.matchAll({ includeUncontrolled: true }).then(clients => {
-        clients.forEach(client => client.postMessage({ type: 'CONTROLLER_CHANGE' }));
+    caches.keys().then(keys =>
+      Promise.all(
+        keys
+          .filter(key => key !== CACHE_NAME)
+          .map(key => caches.delete(key))
+      )
+    ).then(() => self.clients.claim()) // 🔥 pas besoin de fermer l’onglet
+  );
+
+  // 🔥 avertit tous les clients que la nouvelle version est active
+  self.clients.matchAll().then(clients => {
+    clients.forEach(client => {
+      client.postMessage({ type: 'UPDATE_READY' });
+    });
+  });
+});
+
+// FETCH — stratégie network-first (update JS instantané)
+self.addEventListener('fetch', event => {
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        // Met à jour le cache avec la dernière version
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        return response;
       })
-    )
+      .catch(() => caches.match(event.request)) // hors-ligne → cache
   );
 });
