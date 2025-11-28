@@ -101,6 +101,16 @@ button[disabled], .btn[disabled]{
   box-shadow:0 2px 8px rgba(251,191,36,0.3);
   border:2px solid #1e3a8a;
 }
+.stop-platform{
+  background:#f0f9ff;
+  color:#0369a1;
+  padding:2px 6px;
+  border-radius:4px;
+  font-size:10px;
+  font-weight:700;
+  margin-left:6px;
+  border:1px solid #bae6fd;
+}
 .time{font-weight:800;font-size:20px;text-align:right;min-width:72px}
 .delay{font-size:12px;margin-top:6px;text-align:right;font-weight:600;padding:4px 8px;border-radius:6px;display:inline-block}
 .delay.on-time{background:#d1fae5;color:#065f46;border:1px solid #10b981}

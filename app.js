@@ -387,60 +387,67 @@
       let html = '';
 
       // Arrêts avec style métro moderne
-      if (details.vehicle?.stops) {
-        const stops = Array.isArray(details.vehicle.stops.stop)
-          ? details.vehicle.stops.stop
-          : [details.vehicle.stops.stop];
-
-        const now = Utils.nowSeconds();
+      if (details.vehicle && details.vehicle.stops) {
+        const stopsData = details.vehicle.stops.stop;
         
-        // Trouver la position actuelle du train
-        let lastPassedIndex = -1;
-        stops.forEach((stop, index) => {
-          const stopTime = parseInt(stop.time);
-          const stopDelay = parseInt(stop.delay || 0);
-          const actualTime = stopTime + stopDelay;
-          
-          if (actualTime <= now) {
-            lastPassedIndex = index;
-          }
-        });
+        if (stopsData) {
+          const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
 
-        html += '<h4>Itinéraire</h4><div class="metro-line">';
-        
-        stops.forEach((stop, index) => {
-          const isCurrent = stop.station.toLowerCase() === currentStation.toLowerCase();
-          const isFirst = index === 0;
-          const isLast = index === stops.length - 1;
+          const now = Utils.nowSeconds();
           
-          // Position du train
-          const isTrainHere = index === lastPassedIndex;
-          const isPassed = index < lastPassedIndex;
+          // Trouver la position actuelle du train
+          let lastPassedIndex = -1;
+          stops.forEach((stop, index) => {
+            const stopTime = parseInt(stop.time);
+            const stopDelay = parseInt(stop.delay || 0);
+            const actualTime = stopTime + stopDelay;
+            
+            if (actualTime <= now) {
+              lastPassedIndex = index;
+            }
+          });
+
+          html += '<h4>Itinéraire</h4><div class="metro-line">';
           
-          // Gérer les retards
-          const delay = parseInt(stop.delay || 0);
-          const delayMin = Math.floor(delay / 60);
-          const delayClass = delay > 0 ? 'has-delay' : '';
-          const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
-          
-          // Gérer les annulations
-          const isCanceled = stop.canceled === '1' || stop.canceled === 1;
-          const cancelClass = isCanceled ? 'canceled' : '';
-          
-          html += `
-            <div class="metro-stop ${isCurrent ? 'current' : ''} ${isFirst ? 'first' : ''} ${isLast ? 'last' : ''} ${delayClass} ${cancelClass} ${isTrainHere ? 'train-position' : ''} ${isPassed ? 'passed' : ''}">
-              <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
-              <div class="metro-info">
-                <div class="metro-station">${stop.station}${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}</div>
-                <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
+          stops.forEach((stop, index) => {
+            const isCurrent = stop.station.toLowerCase() === currentStation.toLowerCase();
+            const isFirst = index === 0;
+            const isLast = index === stops.length - 1;
+            
+            // Position du train
+            const isTrainHere = index === lastPassedIndex;
+            const isPassed = index < lastPassedIndex;
+            
+            // Gérer les retards
+            const delay = parseInt(stop.delay || 0);
+            const delayMin = Math.floor(delay / 60);
+            const delayClass = delay > 0 ? 'has-delay' : '';
+            const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
+            
+            // Gérer les annulations
+            const isCanceled = stop.canceled === '1' || stop.canceled === 1;
+            const cancelClass = isCanceled ? 'canceled' : '';
+            
+            // Voie/Quai
+            const platform = stop.platform ? ` <span class="stop-platform">Voie ${stop.platform}</span>` : '';
+            
+            html += `
+              <div class="metro-stop ${isCurrent ? 'current' : ''} ${isFirst ? 'first' : ''} ${isLast ? 'last' : ''} ${delayClass} ${cancelClass} ${isTrainHere ? 'train-position' : ''} ${isPassed ? 'passed' : ''}">
+                <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
+                <div class="metro-info">
+                  <div class="metro-station">${stop.station}${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}${platform}</div>
+                  <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
+                </div>
               </div>
-            </div>
-          `;
-        });
-        
-        html += '</div>';
+            `;
+          });
+          
+          html += '</div>';
+        } else {
+          html += '<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>';
+        }
       } else {
-        html += '<p>Détails d\'arrêt non disponibles.</p>';
+        html += '<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>';
       }
 
       // Composition
@@ -510,11 +517,11 @@
           html += `<p style="margin-top:8px;font-size:11px;color:#64748b;text-align:center">← Sens de marche (tête du train à gauche)</p>`;
         } else {
           html += `<h4 style="margin-top:16px">Composition</h4>`;
-          html += `<p>ℹ️ Composition non disponible pour ce train</p>`;
+          html += `<div class="info">ℹ️ La composition n'est pas disponible pour ce train</div>`;
         }
       } else {
         html += `<h4 style="margin-top:16px">Composition</h4>`;
-        html += `<p>ℹ️ Données de composition non disponibles</p>`;
+        html += `<div class="info">ℹ️ Données de composition non disponibles</div>`;
       }
 
       return html;
@@ -874,6 +881,7 @@
   App.start();
 
 })();
+
 // Enregistrement du Service Worker pour PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
