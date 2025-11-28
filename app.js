@@ -353,11 +353,19 @@
       
       const occupancy = this.renderOccupancy(train.occupancy);
       
-      const direction = train.direction 
-        ? (state.mode === 'departure' 
-          ? `→ ${train.direction.name}` 
-          : `${train.direction.name} →`)
-        : '';
+      // Direction correcte selon le mode
+      let routeText = '';
+      if (train.direction) {
+        if (state.mode === 'departure') {
+          // Mode départ : afficher "Station actuelle → Terminus"
+          routeText = `${state.station} → ${train.direction.name}`;
+        } else {
+          // Mode arrivée : afficher "Origine → Station actuelle"
+          routeText = `${train.direction.name} → ${state.station}`;
+        }
+      } else {
+        routeText = state.station;
+      }
       
       const dateStr = Utils.getDateString(new Date(train.time * 1000));
 
@@ -367,11 +375,7 @@
              data-datestr="${dateStr}">
           <div class="left">
             <div class="train-number">${number} ${occupancy}</div>
-            <div class="route">
-              ${state.mode === 'departure' 
-                ? `${state.station} ${direction}` 
-                : `${direction} ${state.station}`}
-            </div>
+            <div class="route">${routeText}</div>
             <div class="platform">Voie: ${platform}</div>
           </div>
           <div style="text-align:right">
@@ -881,12 +885,3 @@
   App.start();
 
 })();
-
-// Enregistrement du Service Worker pour PWA
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js')
-      .then(reg => console.log('Service Worker enregistré'))
-      .catch(err => console.log('Erreur Service Worker:', err));
-  });
-}
