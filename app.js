@@ -600,15 +600,13 @@
       return html;
     },
 
-    async renderTrainsList(data) {
+async renderTrainsList(data) {
   const container = DOM.trainsList;
-  if (!container) return;
-
   container.innerHTML = '';
 
   const key = state.mode === 'departure' ? 'departures' : 'arrivals';
   const rawTrains = data[key];
-  
+
   if (!rawTrains) {
     const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
     container.innerHTML = `
@@ -620,10 +618,27 @@
   }
 
   const trainsKey = state.mode === 'departure' ? 'departure' : 'arrival';
-  const trains = rawTrains[trainsKey] || [];
-  const trainsArray = Array.isArray(trains) ? trains : (trains ? [trains] : []);
+  let trains = rawTrains[trainsKey] || [];
+  let trainsArray = Array.isArray(trains) ? trains : [trains];
 
-  // 🔁 IMPORTANT : on appelle explicitement UI.*, plus "this"
+  // ---- MINIMUM 4 TRAINS ----
+  if (trainsArray.length < 4 && data?.pagination?.next) {
+    try {
+      const nextUrl = data.pagination.next;
+      const nextData = await API.fetchWithTimeout(nextUrl);
+      const more = nextData[key]?.[trainsKey] || [];
+      const moreArr = Array.isArray(more) ? more : [more];
+
+      trainsArray = [...trainsArray, ...moreArr];
+    } catch (e) {
+      console.warn("Impossible d'obtenir plus de trains.", e);
+    }
+  }
+
+  // On limite pour ne pas afficher trop
+  trainsArray = trainsArray.slice(0, 4);
+  // --------------------------
+
   container.innerHTML += UI.renderDisturbanceBanner();
 
   if (trainsArray.length === 0) {
@@ -640,6 +655,7 @@
     container.innerHTML += UI.renderTrain(train);
   });
 },
+
 
 
     showLoading() {
