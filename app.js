@@ -739,35 +739,50 @@
       }
     },
     handleTrainSearch() {
-      if (!DOM.trainSearchInput) return;
-      const raw = DOM.trainSearchInput.value.trim();
-      if (!raw) return;
-      const digits = raw.replace(/\D/g, "");
-      if (!digits) return;
-      const trains = state.currentTrains || [];
-      if (!trains.length) return;
-      const found = trains.find((t) => {
-        let num = "";
-        if (t.vehicleinfo && t.vehicleinfo.shortname) {
-          num = t.vehicleinfo.shortname.replace(/\D/g, "");
-        } else if (t.vehicle && typeof t.vehicle === "string") {
-          const parts = t.vehicle.split(".");
-          num = (parts[parts.length - 1] || "").replace(/\D/g, "");
-        }
-        return num.endsWith(digits);
-      });
-      if (!found) {
-        alert("Aucun train trouvé avec ce numéro dans la liste actuelle.");
-        return;
-      }
-      const selector = `.train[data-vehicle="${found.vehicle}"]`;
-      const el = document.querySelector(selector);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("train-highlight");
-        setTimeout(() => el.classList.remove("train-highlight"), 1500);
-      }
+  if (!DOM.trainSearchInput) return;
+
+  const raw = DOM.trainSearchInput.value.trim();
+  if (!raw) return;
+
+  // On ne garde que les chiffres tapés (ex: "IC 2108" -> "2108")
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return;
+
+  const trains = Array.from(document.querySelectorAll(".train"));
+  if (!trains.length) {
+    alert("Aucun train à l'écran pour le moment.");
+    return;
+  }
+
+  let targetTrain = null;
+
+  for (const trainEl of trains) {
+    const numEl = trainEl.querySelector(".train-number");
+    if (!numEl) continue;
+
+    const text = numEl.textContent || "";
+    const numDigits = text.replace(/\D/g, ""); // on ne garde que les chiffres du texte affiché
+
+    // On considère qu'une correspondance sur la fin suffit (ex: "2108" match "IC2108")
+    if (numDigits.endsWith(digits)) {
+      targetTrain = trainEl;
+      break;
     }
+  }
+
+  if (!targetTrain) {
+    alert("Aucun train trouvé avec ce numéro dans la liste actuelle.");
+    return;
+  }
+
+  // Scroll vers le train
+  targetTrain.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  // Petit highlight
+  targetTrain.classList.add("train-highlight");
+  setTimeout(() => targetTrain.classList.remove("train-highlight"), 1500);
+}
+
   };
 
   const App = {
