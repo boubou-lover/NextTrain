@@ -174,6 +174,7 @@
     stationNameText: document.getElementById('stationNameText'),
     stationSelect: document.getElementById('stationSelect'),
     stationSearch: document.getElementById('stationSearch'),
+    trainSearch: document.getElementById('trainSearch'),
     tabDeparture: document.getElementById('tabDeparture'),
     tabArrival: document.getElementById('tabArrival'),
     trainsList: document.getElementById('trainsList'),
@@ -744,6 +745,33 @@
     handleStationSearch: Utils.debounce((event) => {
       UI.renderStationSelect(event.target.value);
     }, CONFIG.DEBOUNCE_DELAY),
+   handleTrainSearch(event) {
+  const q = Utils.normalize(event.target.value.trim());
+  const trains = document.querySelectorAll('.train');
+
+  if (!q) {
+    trains.forEach(t => t.style.display = '');
+    return;
+  }
+
+  trains.forEach(train => {
+    const num = Utils.normalize(train.querySelector('.train-number')?.textContent) || '';
+    const route = Utils.normalize(train.querySelector('.route')?.textContent) || '';
+
+    const score = (str) => {
+      if (!str) return 0;
+      if (str.startsWith(q)) return 5;     // Meilleur score
+      if (str.includes(q)) return 3;       // OK
+      let m = 0;                           // fuzzy "pauvre"
+      for (let c of q) if (str.includes(c)) m++;
+      return m >= q.length - 1 ? 1 : 0;    // tolère erreurs
+    };
+
+    const s = Math.max(score(num), score(route));
+    train.style.display = s > 0 ? '' : 'none';
+  });
+},
+
 
     handleStationSearchKeyDown(event) {
       const select = DOM.stationSelect;
@@ -892,6 +920,7 @@
     setupListeners() {
       DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
       DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
+      DOM.trainSearch.addEventListener('input', Events.handleTrainSearch);  
       DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
       DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
       DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
@@ -966,6 +995,8 @@
       state.isFetching = true;
       UI.updateHeader();
       UI.showLoading();
+      DOM.trainSearch.value = '';
+
 
       if (state.autoRefreshHandle) {
         clearTimeout(state.autoRefreshHandle);
