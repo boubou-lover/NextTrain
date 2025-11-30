@@ -920,7 +920,21 @@
     setupListeners() {
       DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
       DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
-      DOM.trainSearch.addEventListener('input', Events.handleTrainSearch);  
+      DOM.trainSearch.addEventListener('input', Events.handleTrainSearch);
+
+// ENTER Android / iPhone
+DOM.trainSearch.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    Events.handleTrainSearch();
+  }
+});
+
+// Touche "loupe" Android
+DOM.trainSearch.addEventListener('search', Events.handleTrainSearch);
+
+// Fallback vieux Android / Chrome
+DOM.trainSearch.addEventListener('change', Events.handleTrainSearch);  
       DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
       DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
       DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
