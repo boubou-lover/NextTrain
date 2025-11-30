@@ -1,5 +1,4 @@
-// ---------- STATIONS (sera chargé depuis l'API) ----------
-  const STATIONS = {};/* ============================================================
+/* ============================================================
    NextTrain – app.js (Version Complète et Optimisée)
    ============================================================ */
 
@@ -7,17 +6,20 @@
   // ---------- CONFIGURATION ----------
   const CONFIG = {
     API_BASE: 'https://api.irail.be',
-    CACHE_TTL: 5 * 60 * 1000,
+    CACHE_TTL: 5 * 60 * 1000,       // Cache mémoire pour détails trains
     AUTO_REFRESH: 60000,
-    DEBOUNCE_DELAY: 150, // Réduit de 300ms à 150ms
-    FETCH_TIMEOUT: 7000
+    DEBOUNCE_DELAY: 150,
+    FETCH_TIMEOUT: 7000,
+    OFFLINE_STATIONS_TTL: 7 * 24 * 60 * 60 * 1000, // 7 jours
+    OFFLINE_LIVEBOARD_TTL: 10 * 60 * 1000          // 10 minutes
   };
 
   // ---------- ÉTAT GLOBAL ----------
   const state = {
     mode: localStorage.getItem('nt_mode') || 'departure',
     station: localStorage.getItem('nt_station') || 'Libramont',
-    allStations: [], // Liste complète chargée depuis l'API
+    allStations: [],              // Liste complète depuis l'API
+    allStationsNormalized: [],    // Index pour recherche rapide
     disturbances: [],
     expandedVehicle: null,
     trainDetailsCache: {},
@@ -25,7 +27,7 @@
     isFetching: false
   };
 
-  // ---------- STATIONS PAR LIGNE ----------
+  // ---------- STATIONS HUBS (pour marquer les correspondances possibles) ----------
   const STATIONS = {
     'Bruxelles': [
       'Bruxelles-Midi', 'Bruxelles-Central', 'Bruxelles-Nord', 
@@ -129,9 +131,9 @@
       return `${vehicleId}_${dateStr}`;
     },
 
-    // Calculer la distance entre deux coordonnées (formule de Haversine)
+    // Calculer la distance entre deux coordonnées (Haversine)
     getDistance(lat1, lon1, lat2, lon2) {
-      const R = 6371; // Rayon de la Terre en km
+      const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
       const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -139,6 +141,31 @@
                 Math.sin(dLon/2) * Math.sin(dLon/2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
       return R * c;
+    },
+
+    normalize(str) {
+      return (str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '');
+    },
+
+    buildStationsIndex() {
+      state.allStationsNormalized = state.allStations.map(s => ({
+        raw: s,
+        norm: Utils.normalize(s.standardname)
+      }));
+    },
+
+    isConnectionStation(name) {
+      if (!name) return false;
+      const target = name.toLowerCase();
+      for (const region in STATIONS) {
+        if (STATIONS[region].some(st => st.toLowerCase() === target)) {
+          return true;
+        }
+      }
+      return false;
     }
   };
 
@@ -154,17 +181,15 @@
     refreshBtn: document.getElementById('refreshBtn')
   };
 
-  // ---------- GESTION DU CACHE ----------
+  // ---------- GESTION DU CACHE EN MÉMOIRE ----------
   const Cache = {
     get(key) {
       const cached = state.trainDetailsCache[key];
       if (!cached) return null;
-      
       if (Date.now() - cached.timestamp > CONFIG.CACHE_TTL) {
         delete state.trainDetailsCache[key];
         return null;
       }
-      
       return cached.data;
     },
 
@@ -173,6 +198,65 @@
         timestamp: Date.now(),
         data: data
       };
+    }
+  };
+
+  // ---------- GESTION DU CACHE OFFLINE (localStorage) ----------
+  const Offline = {
+    saveStations(stations) {
+      try {
+        localStorage.setItem('nt_allStations', JSON.stringify({
+          timestamp: Date.now(),
+          stations
+        }));
+      } catch (e) {
+        console.warn('Impossible de stocker les gares offline', e);
+      }
+    },
+
+    loadStations() {
+      try {
+        const raw = localStorage.getItem('nt_allStations');
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (Date.now() - data.timestamp > CONFIG.OFFLINE_STATIONS_TTL) {
+          return null;
+        }
+        return data.stations || [];
+      } catch (e) {
+        console.warn('Erreur lecture gares offline', e);
+        return null;
+      }
+    },
+
+    liveboardKey(station, mode) {
+      return `nt_liveboard_${station}_${mode}`;
+    },
+
+    saveLiveboard(station, mode, data) {
+      try {
+        localStorage.setItem(this.liveboardKey(station, mode), JSON.stringify({
+          timestamp: Date.now(),
+          data
+        }));
+      } catch (e) {
+        console.warn('Impossible de stocker le liveboard offline', e);
+      }
+    },
+
+    loadLiveboard(station, mode) {
+      try {
+        const raw = localStorage.getItem(this.liveboardKey(station, mode));
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (Date.now() - data.timestamp > CONFIG.OFFLINE_LIVEBOARD_TTL) {
+          return null;
+        }
+        return data.data;
+      } catch (e) {
+        console.warn('Erreur lecture liveboard offline', e);
+        return null;
+      }
     }
   };
 
@@ -186,11 +270,9 @@
       try {
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
-        
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        
         return await response.json();
       } catch (error) {
         clearTimeout(timeoutId);
@@ -210,26 +292,41 @@
     },
 
     async getAllStations() {
+      // D'abord tenter chargement en ligne
       try {
         const url = `${CONFIG.API_BASE}/stations/?format=json&lang=${Utils.lang()}`;
         const data = await this.fetchWithTimeout(url, { timeout: 10000 });
-        return data.station || [];
+        const stations = data.station || [];
+        Offline.saveStations(stations);
+        return stations;
       } catch (error) {
-        console.warn('Erreur chargement stations:', error);
-        return [];
+        console.warn('Erreur chargement stations, tentative offline:', error);
+        const offline = Offline.loadStations();
+        return offline || [];
       }
     },
 
     async getStationBoard(station, mode) {
       const arrdep = mode === 'arrival' ? 'ARR' : 'DEP';
       const url = `${CONFIG.API_BASE}/liveboard/?station=${encodeURIComponent(station)}&arrdep=${arrdep}&lang=${Utils.lang()}&format=json`;
-      return await this.fetchWithTimeout(url);
+
+      try {
+        const data = await this.fetchWithTimeout(url);
+        Offline.saveLiveboard(station, mode, data);
+        return data;
+      } catch (error) {
+        console.warn('Erreur liveboard, tentative offline:', error);
+        const offline = Offline.loadLiveboard(station, mode);
+        if (offline) {
+          return offline;
+        }
+        throw error;
+      }
     },
 
     async getVehicleDetails(vehicleId, dateStr) {
       const cacheKey = Utils.cacheKey(vehicleId, dateStr);
       const cached = Cache.get(cacheKey);
-      
       if (cached) return cached;
 
       try {
@@ -263,38 +360,48 @@
     renderStationSelect(filter = '') {
       const select = DOM.stationSelect;
       select.innerHTML = '';
-      
-      let optionsCount = 0;
 
-      // Si on a des stations de l'API
-      if (state.allStations.length > 0) {
-        const filterLower = filter.toLowerCase();
-        
-        // Filtrer et limiter à 50 résultats pour la performance
-        const stations = state.allStations
-          .filter(s => filterLower === '' || s.standardname.toLowerCase().includes(filterLower))
-          .slice(0, 50) // Limiter à 50 résultats
-          .sort((a, b) => a.standardname.localeCompare(b.standardname));
+      const query = Utils.normalize(filter);
+      let options = [];
 
-        optionsCount = stations.length;
+      if (state.allStationsNormalized.length > 0) {
+        let list = state.allStationsNormalized;
 
-        // Utiliser innerHTML plus rapide que createElement
-        const options = stations.map(station => 
-          `<option value="${station.standardname}" ${station.standardname === state.station ? 'selected' : ''}>${station.standardname}</option>`
-        ).join('');
-        
-        select.innerHTML = options;
+        if (query) {
+          // Auto-complétion "Google Maps" : prioriser les débuts de mot
+          const starts = [];
+          const contains = [];
+          for (const s of list) {
+            if (s.norm.startsWith(query)) {
+              starts.push(s.raw);
+            } else if (s.norm.includes(query)) {
+              contains.push(s.raw);
+            }
+          }
+          list = [...starts, ...contains];
+        } else {
+          list = state.allStationsNormalized.map(s => s.raw);
+        }
+
+        const limited = list.slice(0, 60);
+        options = limited.sort((a, b) => a.standardname.localeCompare(b.standardname));
       }
 
-      // Gestion de l'affichage
+      if (options.length === 0 && filter) {
+        select.innerHTML = '<option disabled>❌ Aucune gare trouvée</option>';
+      } else {
+        const htmlOptions = options.map(station =>
+          `<option value="${station.standardname}" ${station.standardname === state.station ? 'selected' : ''}>${station.standardname}</option>`
+        ).join('');
+        select.innerHTML = htmlOptions;
+        if (options.length === 60) {
+          select.innerHTML += '<option disabled>... (affichage limité à 60 résultats)</option>';
+        }
+      }
+
+      // Affichage du select uniquement si on tape quelque chose
       if (filter) {
         select.style.display = 'block';
-        
-        if (optionsCount === 0) {
-          select.innerHTML = '<option disabled>❌ Aucune gare trouvée</option>';
-        } else if (optionsCount === 50) {
-          select.innerHTML += '<option disabled>... (affichage limité à 50 résultats)</option>';
-        }
       } else {
         select.style.display = 'none';
       }
@@ -353,14 +460,11 @@
       
       const occupancy = this.renderOccupancy(train.occupancy);
       
-      // Direction correcte selon le mode
       let routeText = '';
       if (train.direction) {
         if (state.mode === 'departure') {
-          // Mode départ : afficher "Station actuelle → Terminus"
           routeText = `${state.station} → ${train.direction.name}`;
         } else {
-          // Mode arrivée : afficher "Origine → Station actuelle"
           routeText = `${train.direction.name} → ${state.station}`;
         }
       } else {
@@ -390,22 +494,18 @@
     renderTrainDetails(details, currentStation) {
       let html = '';
 
-      // Arrêts avec style métro moderne
+      // Arrêts avec style métro moderne + correspondances possibles
       if (details.vehicle && details.vehicle.stops) {
         const stopsData = details.vehicle.stops.stop;
-        
         if (stopsData) {
           const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
-
           const now = Utils.nowSeconds();
-          
-          // Trouver la position actuelle du train
           let lastPassedIndex = -1;
+
           stops.forEach((stop, index) => {
             const stopTime = parseInt(stop.time);
             const stopDelay = parseInt(stop.delay || 0);
             const actualTime = stopTime + stopDelay;
-            
             if (actualTime <= now) {
               lastPassedIndex = index;
             }
@@ -417,29 +517,33 @@
             const isCurrent = stop.station.toLowerCase() === currentStation.toLowerCase();
             const isFirst = index === 0;
             const isLast = index === stops.length - 1;
-            
-            // Position du train
             const isTrainHere = index === lastPassedIndex;
             const isPassed = index < lastPassedIndex;
             
-            // Gérer les retards
             const delay = parseInt(stop.delay || 0);
             const delayMin = Math.floor(delay / 60);
             const delayClass = delay > 0 ? 'has-delay' : '';
             const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
             
-            // Gérer les annulations
             const isCanceled = stop.canceled === '1' || stop.canceled === 1;
             const cancelClass = isCanceled ? 'canceled' : '';
             
-            // Voie/Quai
             const platform = stop.platform ? ` <span class="stop-platform">Voie ${stop.platform}</span>` : '';
-            
+            const isConnection = Utils.isConnectionStation(stop.station);
+
             html += `
               <div class="metro-stop ${isCurrent ? 'current' : ''} ${isFirst ? 'first' : ''} ${isLast ? 'last' : ''} ${delayClass} ${cancelClass} ${isTrainHere ? 'train-position' : ''} ${isPassed ? 'passed' : ''}">
                 <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
                 <div class="metro-info">
-                  <div class="metro-station">${stop.station}${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}${platform}</div>
+                  <div class="metro-station">
+                    <a href="#" class="goto-station" data-station="${stop.station}">
+                      ${stop.station}
+                    </a>
+                    ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}
+                    ${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}
+                    ${platform}
+                    ${isConnection ? ' <span class="stop-connection">Correspondances possibles</span>' : ''}
+                  </div>
                   <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
                 </div>
               </div>
@@ -457,7 +561,6 @@
       // Composition
       if (details.composition) {
         const comp = details.composition.composition;
-        
         if (comp && comp.segments && comp.segments.segment) {
           const segments = Array.isArray(comp.segments.segment) 
             ? comp.segments.segment 
@@ -466,7 +569,6 @@
           html += `<h4 style="margin-top:16px">Composition</h4>`;
           html += `<div class="train-composition">`;
           
-          // Utiliser un Set pour éviter les doublons
           const seenUnits = new Set();
           
           segments.forEach((seg) => {
@@ -478,12 +580,9 @@
               units.forEach(unit => {
                 const materialType = unit.materialType?.parent_type || unit.materialType || '?';
                 const unitId = unit.id || `${materialType}_${Math.random()}`;
-                
-                // Éviter les doublons
                 if (seenUnits.has(unitId)) return;
                 seenUnits.add(unitId);
                 
-                // Identifier le type de matériel
                 const typeUpper = materialType.toUpperCase();
                 let icon = '🚃';
                 let label = 'Voiture';
@@ -535,11 +634,9 @@
       const container = DOM.trainsList;
       container.innerHTML = '';
 
-      // L'API retourne "departures" ou "arrivals" selon le mode
       const key = state.mode === 'departure' ? 'departures' : 'arrivals';
       const rawTrains = data[key];
       
-      // Vérifier si des données existent
       if (!rawTrains) {
         const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
         container.innerHTML = `
@@ -550,15 +647,12 @@
         return;
       }
 
-      // L'API peut retourner departure ou arrival selon le mode
       const trainsKey = state.mode === 'departure' ? 'departure' : 'arrival';
       const trains = rawTrains[trainsKey] || [];
       const trainsArray = Array.isArray(trains) ? trains : (trains ? [trains] : []);
 
-      // Bannière perturbations
       container.innerHTML += this.renderDisturbanceBanner();
 
-      // Message si aucun train
       if (trainsArray.length === 0) {
         const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
         container.innerHTML += `
@@ -569,7 +663,6 @@
         return;
       }
 
-      // Liste des trains
       trainsArray.forEach(train => {
         container.innerHTML += this.renderTrain(train);
       });
@@ -605,16 +698,16 @@
       // Fermer tous les trains
       document.querySelectorAll('.train.expanded').forEach(el => {
         el.classList.remove('expanded');
-        el.nextElementSibling.innerHTML = '';
+        if (el.nextElementSibling) {
+          el.nextElementSibling.innerHTML = '';
+        }
       });
 
-      // Si déjà ouvert, on le ferme
       if (isExpanded) {
         state.expandedVehicle = null;
         return;
       }
 
-      // Ouvrir ce train
       trainEl.classList.add('expanded');
       state.expandedVehicle = vehicleId;
 
@@ -627,24 +720,73 @@
 
       const details = await API.getVehicleDetails(vehicleId, dateStr);
       detailsEl.innerHTML = UI.renderTrainDetails(details, state.station);
+
+      // Pré-charger les arrêts du train suivant pour affichage quasi instantané
+      Events.preloadNextTrain(trainEl);
+    },
+
+    preloadNextTrain(currentTrainEl) {
+      let detailsEl = currentTrainEl.nextElementSibling;
+      if (!detailsEl) return;
+      let nextTrain = detailsEl.nextElementSibling;
+      if (!nextTrain || !nextTrain.classList.contains('train')) return;
+
+      const vehicleId = nextTrain.dataset.vehicle;
+      const dateStr = nextTrain.dataset.datestr;
+      if (!vehicleId || !dateStr) return;
+
+      const cacheKey = Utils.cacheKey(vehicleId, dateStr);
+      if (Cache.get(cacheKey)) return;
+
+      API.getVehicleDetails(vehicleId, dateStr).catch(() => {});
     },
 
     handleStationSearch: Utils.debounce((event) => {
       UI.renderStationSelect(event.target.value);
     }, CONFIG.DEBOUNCE_DELAY),
 
+    handleStationSearchKeyDown(event) {
+      const select = DOM.stationSelect;
+      if (!select) return;
+
+      if (event.key === 'ArrowDown') {
+        if (select.options.length > 0) {
+          select.style.display = 'block';
+          select.focus();
+          if (select.selectedIndex < 0) {
+            select.selectedIndex = 0;
+          }
+          event.preventDefault();
+        }
+      } else if (event.key === 'Enter') {
+        const opt = select.options[select.selectedIndex >= 0 ? select.selectedIndex : 0];
+        if (opt && !opt.disabled) {
+          state.station = opt.value;
+          App.saveState();
+          DOM.stationSearch.value = '';
+          select.style.display = 'none';
+          App.init(true);
+          event.preventDefault();
+        }
+      } else if (event.key === 'Escape') {
+        select.style.display = 'none';
+      }
+    },
+
     handleStationSelect(event) {
-      state.station = event.target.value;
+      const value = event.target.value;
+      if (!value) return;
+      state.station = value;
       DOM.stationSelect.style.display = 'none';
       DOM.stationSearch.value = '';
       App.saveState();
-      App.init();
+      App.init(true);
     },
 
     handleModeChange(mode) {
       state.mode = mode;
       App.saveState();
-      App.init();
+      App.init(true);
     },
 
     handleDocumentClick(event) {
@@ -677,40 +819,26 @@
         const userLat = position.coords.latitude;
         const userLon = position.coords.longitude;
 
-        // Trouver la gare la plus proche
         if (state.allStations.length === 0) {
           alert('Chargement des gares en cours, veuillez réessayer...');
           return;
         }
 
-        let nearestStation = null;
-        let minDistance = Infinity;
-
-        state.allStations.forEach(station => {
-          if (station.locationY && station.locationX) {
-            const lat = parseFloat(station.locationY);
-            const lon = parseFloat(station.locationX);
-            const distance = Utils.getDistance(userLat, userLon, lat, lon);
-            
-            if (distance < minDistance) {
-              minDistance = distance;
-              nearestStation = station;
-            }
-          }
-        });
-
-        if (nearestStation) {
-          state.station = nearestStation.standardname;
-          App.saveState();
-          App.init();
-          
-          DOM.stationNameText.textContent = `${nearestStation.standardname} (${minDistance.toFixed(1)} km)`;
-          setTimeout(() => {
-            DOM.stationNameText.textContent = nearestStation.standardname;
-          }, 3000);
-        } else {
-          alert('Impossible de trouver une gare proche.');
+        const nearest = Events.findNearestStation(userLat, userLon);
+        if (!nearest) {
+          alert('Aucune gare pertinente trouvée à proximité.');
+          return;
         }
+
+        state.station = nearest.standardname;
+        App.saveState();
+        App.init(true);
+        
+        const distance = nearest._distance || 0;
+        DOM.stationNameText.textContent = `${nearest.standardname} (${distance.toFixed(1)} km)`;
+        setTimeout(() => {
+          DOM.stationNameText.textContent = nearest.standardname;
+        }, 3000);
 
       } catch (error) {
         console.error('Erreur géolocalisation:', error);
@@ -723,6 +851,34 @@
         DOM.locateBtn.disabled = false;
         DOM.locateBtn.textContent = '📍 Localiser';
       }
+    },
+
+    findNearestStation(lat, lon) {
+      let nearest = null;
+      let minDistance = Infinity;
+
+      state.allStations.forEach(station => {
+        if (station.locationY && station.locationX) {
+          const sLat = parseFloat(station.locationY);
+          const sLon = parseFloat(station.locationX);
+          const dist = Utils.getDistance(lat, lon, sLat, sLon);
+
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearest = station;
+          }
+        }
+      });
+
+      if (!nearest) return null;
+
+      // Seuils : <2 km parfait ; <15 km encore acceptable ; au-delà on considère que c'est trop loin
+      if (minDistance > 15) {
+        return null;
+      }
+
+      nearest._distance = minDistance;
+      return nearest;
     }
   };
 
@@ -735,6 +891,7 @@
 
     setupListeners() {
       DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
+      DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
       DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
       DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
       DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
@@ -742,22 +899,29 @@
       DOM.trainsList.addEventListener('click', Events.handleTrainClick);
       DOM.locateBtn.addEventListener('click', Events.handleLocate);
       document.addEventListener('click', Events.handleDocumentClick);
+
+      // Navigation depuis l’itinéraire : clic sur une gare → liveboard de cette gare
+      document.addEventListener('click', (e) => {
+        const link = e.target.closest('.goto-station');
+        if (!link) return;
+        e.preventDefault();
+        const stationName = link.dataset.station;
+        if (!stationName) return;
+        state.station = stationName;
+        this.saveState();
+        this.init(true);
+      });
     },
 
     async tryGeolocation() {
-      // Ne géolocaliser que si c'est la première visite (pas de station sauvegardée)
       const savedStation = localStorage.getItem('nt_station');
       if (savedStation) {
-        console.log('Station déjà sauvegardée, pas de géolocalisation auto');
         return false;
       }
 
       if (!navigator.geolocation) {
-        console.log('Géolocalisation non supportée');
         return false;
       }
-
-      console.log('Première visite - tentative de géolocalisation...');
 
       try {
         const position = await new Promise((resolve, reject) => {
@@ -771,7 +935,6 @@
         const userLat = position.coords.latitude;
         const userLon = position.coords.longitude;
 
-        // Attendre que les stations soient chargées
         let attempts = 0;
         while (state.allStations.length === 0 && attempts < 20) {
           await new Promise(resolve => setTimeout(resolve, 200));
@@ -779,30 +942,12 @@
         }
 
         if (state.allStations.length === 0) {
-          console.log('Stations pas encore chargées');
           return false;
         }
 
-        // Trouver la gare la plus proche
-        let nearestStation = null;
-        let minDistance = Infinity;
-
-        state.allStations.forEach(station => {
-          if (station.locationY && station.locationX) {
-            const lat = parseFloat(station.locationY);
-            const lon = parseFloat(station.locationX);
-            const distance = Utils.getDistance(userLat, userLon, lat, lon);
-            
-            if (distance < minDistance) {
-              minDistance = distance;
-              nearestStation = station;
-            }
-          }
-        });
-
-        if (nearestStation && minDistance < 50) { // Max 50km
-          console.log(`Gare la plus proche: ${nearestStation.standardname} (${minDistance.toFixed(1)} km)`);
-          state.station = nearestStation.standardname;
+        const nearest = Events.findNearestStation(userLat, userLon);
+        if (nearest) {
+          state.station = nearest.standardname;
           this.saveState();
           return true;
         }
@@ -822,29 +967,38 @@
       UI.updateHeader();
       UI.showLoading();
 
-      // Annuler l'auto-refresh
       if (state.autoRefreshHandle) {
         clearTimeout(state.autoRefreshHandle);
       }
 
       try {
-        // Charger la liste des stations si pas encore fait
+        // Charger les gares depuis cache offline en priorité si jamais pas encore
+        if (state.allStations.length === 0) {
+          const offlineStations = Offline.loadStations();
+          if (offlineStations && offlineStations.length > 0) {
+            state.allStations = offlineStations;
+            Utils.buildStationsIndex();
+          }
+        }
+
+        // Si toujours rien, ou pour rafraîchir la liste, appel API
         if (state.allStations.length === 0) {
           console.log('Chargement de toutes les gares SNCB...');
           state.allStations = await API.getAllStations();
           console.log(`${state.allStations.length} gares chargées`);
+          Utils.buildStationsIndex();
+        } else if (state.allStationsNormalized.length === 0) {
+          Utils.buildStationsIndex();
         }
 
-        // Charger perturbations
+        // Perturbations
         state.disturbances = await API.getDisturbances();
         
-        // Charger horaires
+        // Horaires
         const data = await API.getStationBoard(state.station, state.mode);
-        
-        // Afficher les trains
         await UI.renderTrainsList(data);
 
-        // Programmer le prochain refresh
+        // Auto-refresh
         state.autoRefreshHandle = setTimeout(
           () => this.init(), 
           CONFIG.AUTO_REFRESH
@@ -853,9 +1007,9 @@
       } catch (error) {
         console.error('Erreur initialisation:', error);
         
-        const message = error.message.includes('HTTP 404')
+        const message = error.message && error.message.includes('HTTP 404')
           ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
-          : `Impossible de charger les horaires. Veuillez réessayer. (${error.message})`;
+          : `Impossible de charger les horaires. Veuillez réessayer. (${error.message || 'Erreur inconnue'})`;
         
         UI.showError(message);
       } finally {
@@ -869,10 +1023,9 @@
       // Démarrer le chargement initial
       const initPromise = this.init();
       
-      // En parallèle, essayer la géolocalisation
+      // En parallèle, essayer la géolocalisation auto à la première visite
       const geolocated = await this.tryGeolocation();
       
-      // Si géolocalisé, relancer avec la nouvelle station
       if (geolocated) {
         await this.init(true);
       } else {
