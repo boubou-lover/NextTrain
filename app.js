@@ -229,16 +229,44 @@
     while (collected.length < CONFIG.MIN_TRAINS && loops < CONFIG.MAX_LOOPS) {
       loops++;
 
-      const dateStr = Utils.getDateString(cursor);
-      const hhmm = Utils.toHHMM(cursor);
+      let dateStr = Utils.getDateString(cursor);
+      let hhmm = Utils.toHHMM(cursor);
 
-      const data = await API.getStationBoard(state.station, state.mode, {
-        date: dateStr,
-        time: hhmm
-      });
+      // sécurité théorique si jamais un navigateur donne "2400"
+      if (hhmm === "2400") {
+        hhmm = "0000";
+        const nextDay = new Date(
+          cursor.getFullYear(),
+          cursor.getMonth(),
+          cursor.getDate() + 1,
+          0,
+          0,
+          0
+        );
+        cursor = nextDay;
+        dateStr = Utils.getDateString(cursor);
+      }
 
+      let data;
+      try {
+        data = await API.getStationBoard(state.station, state.mode, {
+          date: dateStr,
+          time: hhmm
+        });
+      } catch (err) {
+        console.error("Erreur liveboard:", err);
+        // 👉 Cas Neufchâteau / petites gares : si 400, on avance d'une heure et on réessaie
+        if (String(err.message).includes("HTTP 400")) {
+          cursor = new Date(cursor.getTime() + 60 * 60 * 1000); // +1h
+          continue;
+        }
+        // autre erreur → on remonte pour être affichée proprement
+        throw err;
+      }
+
+      const minTime = Math.floor(cursor.getTime() / 1000) - 60;
       const trains = extractTrainsFromLiveboard(data, state.mode).filter(
-        (t) => t.time >= Math.floor(cursor.getTime() / 1000) - 60
+        (t) => parseInt(t.time, 10) >= minTime
       );
 
       if (!trains.length) {
@@ -262,7 +290,7 @@
       });
 
       // On se place 2 minutes après le dernier train trouvé
-      const lastTime = trains[trains.length - 1].time;
+      const lastTime = parseInt(trains[trains.length - 1].time, 10);
       cursor = new Date((lastTime + 120) * 1000);
     }
 
