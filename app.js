@@ -768,8 +768,7 @@
     };
 
     const s = Math.max(score(num), score(route));
-    train.style.display = s > 0 ? '' : 'none';
-  });
+train.style.setProperty('display', s > 0 ? '' : 'none', 'important');});
 },
 
 
