@@ -325,6 +325,12 @@
       }
     },
 
+    async getVehicleOnly(vehicleId, dateStr) {
+      // Appel léger : uniquement /vehicle (sans composition)
+      const url = `${CONFIG.API_BASE}/vehicle/?id=${encodeURIComponent(vehicleId)}&format=json&lang=${Utils.lang()}&date=${dateStr}`;
+      return await this.fetchWithTimeout(url, { timeout: 7000 });
+    },
+
     async getVehicleDetails(vehicleId, dateStr) {
       const cacheKey = Utils.cacheKey(vehicleId, dateStr);
       const cached = Cache.get(cacheKey);
@@ -446,40 +452,23 @@
       `;
     },
 
-    
     renderTrain(train) {
       const time = Utils.formatTime(train.time);
-
-      // Numéro du train (court si possible)
-      let number = train.vehicleinfo?.shortname || '';
-      if (!number) {
-        // fallback: extraire le dernier segment de l'ID (ex: BE.NMBS.IC2112 -> IC2112)
-        if (typeof train.vehicle === 'string') {
-          const parts = train.vehicle.split('.');
-          number = parts[parts.length - 1] || train.vehicle;
-        } else {
-          number = train.vehicle || '—';
-        }
-      }
-
-      // Pour la recherche "numéro uniquement" (digits)
-      const trainNumDigits = String(number).replace(/\D/g, '');
-
+      const number = train.vehicleinfo?.shortname || train.vehicle || '—';
       const platform = train.platform || '—';
-      const delaySec = parseInt(train.delay || 0, 10);
-      const delayMin = Math.floor(delaySec / 60);
-      const delayText = delaySec > 0
+      const delayMin = Math.floor(train.delay / 60);
+      const delayText = train.delay > 0 
         ? `<div class="delay delayed">+${delayMin} min</div>`
         : `<div class="delay on-time">À l'heure</div>`;
-
-      const cancelled = train.canceled === '1' ||
-                       train.canceled === 1 ||
+      
+      const cancelled = train.canceled === '1' || 
+                       train.canceled === 1 || 
                        train.canceled === true;
-
+      
       const occupancy = this.renderOccupancy(train.occupancy);
-
+      
       let routeText = '';
-      if (train.direction?.name) {
+      if (train.direction) {
         if (state.mode === 'departure') {
           routeText = `${state.station} → ${train.direction.name}`;
         } else {
@@ -488,14 +477,13 @@
       } else {
         routeText = state.station;
       }
-
+      
       const dateStr = Utils.getDateString(new Date(train.time * 1000));
 
       return `
-        <div class="train ${cancelled ? 'cancelled' : ''}"
-             data-vehicle="${train.vehicle}"
-             data-datestr="${dateStr}"
-             data-trainnum="${trainNumDigits}">
+        <div class="train ${cancelled ? 'cancelled' : ''}" 
+             data-vehicle="${train.vehicle}" 
+             data-datestr="${dateStr}">
           <div class="left">
             <div class="train-number">${number} ${occupancy}</div>
             <div class="route">${routeText}</div>
@@ -509,7 +497,6 @@
         <div class="details"></div>
       `;
     },
-
 
     renderTrainDetails(details, currentStation) {
       let html = '';
@@ -764,62 +751,27 @@
     handleStationSearch: Utils.debounce((event) => {
       UI.renderStationSelect(event.target.value);
     }, CONFIG.DEBOUNCE_DELAY),
-   
-    // Recherche dans la liste (train par numéro + route en bonus).
-    // - Si tu tapes des CHIFFRES → on filtre sur le numéro de train (digits uniquement).
-    // - Si tu tapes des LETTRES → on filtre sur la route.
-    // - Sur mobile (touche "Entrée"/"Rechercher"), on valide en scrollant sur le 1er résultat.
-    handleTrainSearch(event, validate = false) {
-      const value = (event && event.target ? event.target.value : (DOM.trainSearch ? DOM.trainSearch.value : '')) || '';
-      const q = Utils.normalize(value.trim());
-      const qDigits = q.replace(/\D/g, ''); // digits only
-      const trains = document.querySelectorAll('.train');
-
-      if (!q) {
-        trains.forEach(t => t.style.display = '');
-        // aussi masquer les blocs détails s’ils sont vides
-        return;
+   handleTrainSearch(event) {
+      // Cette input sert à chercher un train par son NUMÉRO (digits) dans tout iRail.
+      // On ne filtre plus uniquement la liste affichée.
+      // La recherche est déclenchée via Enter / touche "loupe" / change (voir listeners).
+      // Ici, sur input, on se contente de réagir au "vide".
+      const v = (event && event.target) ? event.target.value : '';
+      if (!v || !v.trim()) {
+        // si vide, on recharge la liste courante
+        App.init(true);
       }
+    },
 
-      let firstVisible = null;
+    async handleTrainSearchSubmit(event) {
+      if (event && event.preventDefault) event.preventDefault();
+      if (!DOM.trainSearch) return;
 
-      trains.forEach(train => {
-        const numDigits = (train.dataset.trainnum || '').trim();
-        const numText = Utils.normalize(train.querySelector('.train-number')?.textContent) || '';
-        const route = Utils.normalize(train.querySelector('.route')?.textContent) || '';
+      const raw = DOM.trainSearch.value.trim();
+      const digits = raw.replace(/\D/g, '');
+      if (!digits) return;
 
-        let ok = false;
-
-        // Priorité : recherche par chiffres
-        if (qDigits) {
-          // match "contient" pour tolérer (ex: 2112 → IC2112)
-          ok = numDigits.includes(qDigits) || numText.includes(qDigits);
-        } else {
-          // fallback : route / texte
-          ok = route.includes(q) || numText.includes(q);
-        }
-
-        train.style.display = ok ? '' : 'none';
-
-        // cache aussi le bloc détails si on masque le train
-        const details = train.nextElementSibling;
-        if (details && details.classList.contains('details')) {
-          if (!ok) {
-            details.style.display = 'none';
-          } else {
-            details.style.display = '';
-          }
-        }
-
-        if (ok && !firstVisible) firstVisible = train;
-      });
-
-      if (validate && firstVisible) {
-        firstVisible.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        const prev = firstVisible.style.boxShadow;
-        firstVisible.style.boxShadow = '0 0 0 3px rgba(59,130,246,.35)';
-        setTimeout(() => { firstVisible.style.boxShadow = prev; }, 1200);
-      }
+      await App.searchTrainGlobal(digits);
     },
 
 
@@ -967,37 +919,135 @@
       localStorage.setItem('nt_station', state.station);
     },
 
+    // --- Recherche globale par numéro (digits) ---
+    buildVehicleIdCandidates(digits) {
+      // On teste plusieurs familles de trains (NMBS/SNCB + internationaux)
+      // iRail utilise souvent des IDs du type: BE.NMBS.IC2120
+      const prefixes = [
+        'IC','L','P','S','IR',
+        'EC','ICE','TGV','THA','Eurostar','EXT'
+      ];
+
+      // Certains systèmes utilisent aussi "ICT" ou autres; on ajoute quelques variantes
+      const extraPrefixes = ['ICT','ICD','R','RE','RB'];
+
+      const all = [...prefixes, ...extraPrefixes];
+
+      const uniq = new Set();
+      all.forEach(p => uniq.add(`BE.NMBS.${p}${digits}`));
+
+      // Certains trains internationaux peuvent être encodés différemment; on tente aussi sans "BE.NMBS."
+      all.forEach(p => uniq.add(`${p}${digits}`));
+
+      return Array.from(uniq);
+    },
+
+    async searchTrainGlobal(digits) {
+      // UX: on affiche un loader dédié
+      UI.showLoading();
+      DOM.trainsList.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <div style="margin-top:10px">Recherche du train <strong>${digits}</strong>…</div>
+          <div style="margin-top:6px;font-size:12px;color:#64748b">
+            Astuce : tape juste les chiffres (ex: 2120).
+          </div>
+        </div>
+      `;
+
+      // On essaye d'abord aujourd'hui (prioritaire), puis hier (utile après minuit),
+      // puis demain (dernier recours).
+      const now = new Date();
+      const dayList = [
+        new Date(now),
+        new Date(now.getTime() - 24*60*60*1000),
+        new Date(now.getTime() + 24*60*60*1000)
+      ];
+
+      const candidates = this.buildVehicleIdCandidates(digits);
+
+      let found = null;
+
+      for (const day of dayList) {
+        const dateStr = Utils.getDateString(day);
+
+        for (const vehicleId of candidates) {
+          try {
+            const vehicle = await API.getVehicleOnly(vehicleId, dateStr);
+            // Si on a des stops, c'est un match solide
+            if (vehicle && vehicle.stops && vehicle.stops.stop) {
+              found = { vehicleId, dateStr };
+              break;
+            }
+          } catch (e) {
+            // 404/400 -> pas ce train
+          }
+        }
+        if (found) break;
+      }
+
+      if (!found) {
+        UI.showError(`Aucun train trouvé avec le numéro <strong>${digits}</strong> (sur aujourd'hui/hier/demain).`);
+        return;
+      }
+
+      // On charge les détails complets (vehicle + composition) via le cache existant
+      const details = await API.getVehicleDetails(found.vehicleId, found.dateStr);
+
+      // Affichage d'un "résultat" unique
+      const niceLabel = found.vehicleId.split('.').pop() || found.vehicleId;
+      DOM.trainsList.innerHTML = `
+        <div class="banner" style="margin-bottom:10px">
+          <strong>🔎 Résultat</strong><br>
+          Train <strong>${niceLabel.replace(/\\D/g,'') || digits}</strong> — ${niceLabel}
+          <div style="margin-top:6px;font-size:12px;color:#64748b">
+            Appuie sur une gare dans l’itinéraire pour afficher ses horaires.
+          </div>
+        </div>
+        <div class="train expanded" data-vehicle="${found.vehicleId}" data-datestr="${found.dateStr}">
+          <div class="left">
+            <div class="train-number">${niceLabel}</div>
+            <div class="route">Recherche globale</div>
+            <div class="platform">Date: ${found.dateStr}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="time">—</div>
+            <div class="delay on-time">Détails</div>
+          </div>
+        </div>
+        <div class="details">${UI.renderTrainDetails(details, state.station)}</div>
+      `;
+
+      // Scroll en haut pour que ça soit clair sur mobile
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+
     setupListeners() {
       DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
       DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
-      DOM.stationSearch.addEventListener('keyup', Events.handleStationSearchKeyDown);
-      DOM.stationSearch.addEventListener('search', Events.handleStationSearchKeyDown);
-      DOM.stationSearch.addEventListener('change', Events.handleStationSearchKeyDown);
-
       if (DOM.trainSearch) {
-        // Filtrage en live
-        DOM.trainSearch.addEventListener('input', (e) => Events.handleTrainSearch(e, false));
+        // input: si on vide, on revient à la liste
+        DOM.trainSearch.addEventListener('input', Events.handleTrainSearch);
 
-        // Validation "Entrée" (desktop) + claviers mobiles (Android/iOS)
-        const validateIfEnter = (e) => {
-          const isEnter = (e.key === 'Enter' || e.keyCode === 13);
-          if (!isEnter) return;
-          e.preventDefault();
-          Events.handleTrainSearch(null, true);
-          // Sur mobile, fermer le clavier si possible
-          try { e.target.blur(); } catch (_) {}
-        };
+        // Android/iOS: Enter / "Go" / "Search"
+        DOM.trainSearch.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            Events.handleTrainSearchSubmit(e);
+          }
+        });
 
-        DOM.trainSearch.addEventListener('keydown', validateIfEnter);
-        DOM.trainSearch.addEventListener('keyup', validateIfEnter);
+        // Sur certains mobiles, l'event "search" est émis (type="search")
+        DOM.trainSearch.addEventListener('search', (e) => {
+          Events.handleTrainSearchSubmit(e);
+        });
 
-        // Touche "loupe" / action search (certains Android)
-        DOM.trainSearch.addEventListener('search', () => Events.handleTrainSearch(null, true));
-
-        // Fallback : certains navigateurs n'envoient pas "search"
-        DOM.trainSearch.addEventListener('change', () => Events.handleTrainSearch(null, false));
+        // Fallback: quand l'utilisateur valide/blur
+        DOM.trainSearch.addEventListener('change', (e) => {
+          Events.handleTrainSearchSubmit(e);
+        });
       }
-DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
+
+      DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
       DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
       DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
       DOM.refreshBtn.addEventListener('click', () => this.init(true));
@@ -1071,7 +1121,7 @@ DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
       state.isFetching = true;
       UI.updateHeader();
       UI.showLoading();
-      DOM.trainSearch.value = '';
+      if (DOM.trainSearch) DOM.trainSearch.value = '';
 
 
       if (state.autoRefreshHandle) {

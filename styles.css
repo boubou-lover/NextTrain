@@ -435,30 +435,68 @@ footer{margin-top:12px;color:#9aa4b2;text-align:center;font-size:13px}
   align-items: center; /* Centre verticalement le logo et le texte */
   gap: 12px;
 }
-/* ====== Autocomplete Google Maps style ====== */
+/* ====== Autocomplete Google Maps style (FIX lisibilité) ====== */
 #stationSelect {
   display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+
   width: 100%;
-  max-height: 260px;
+  max-height: 280px;
   overflow-y: auto;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: white;
-  padding: 4px;
+
+  background: #ffffff;
+  color: #0f172a; /* ✅ TEXTE FONCÉ */
+
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+
+  padding: 4px 0;
+  margin-top: 6px;
+
   font-size: 15px;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+  z-index: 1000;
+
+  box-shadow: 0 10px 24px rgba(0,0,0,0.18);
 }
 
 #stationSelect option {
-  padding: 6px 8px;
+  background: #ffffff;
+  color: #0f172a; /* ✅ TEXTE FONCÉ */
+
+  padding: 10px 14px;
   cursor: pointer;
+
+  border-bottom: 1px solid #f1f5f9;
+}
+
+#stationSelect option:last-child {
+  border-bottom: none;
 }
 
 #stationSelect option:hover,
-#stationSelect option:focus {
-  background: #e5f1ff;
+#stationSelect option:checked {
+  background: #e2e8f0;
+  color: #020617;
 }
 
+#stationSelect option:disabled {
+  background: #f8fafc;
+  color: #64748b;
+  cursor: default;
+}
+
+/* Scrollbar Android / Chrome */
+#stationSelect::-webkit-scrollbar {
+  width: 6px;
+}
+
+#stationSelect::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
 
 /* ====== Itinéraire : gare cliquable ====== */
 .goto-station {
@@ -507,4 +545,10 @@ footer{margin-top:12px;color:#9aa4b2;text-align:center;font-size:13px}
 .stop-canceled {
   color: #dc2626;
   font-weight: 600;
+}
+.goto-station {
+  pointer-events: auto !important;
+}
+.metro-station, .metro-info, .metro-stop {
+  pointer-events: auto;
 }
