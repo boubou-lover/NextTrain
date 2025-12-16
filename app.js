@@ -166,7 +166,15 @@
         }
       }
       return false;
-    }
+    },
+    formatDateFR(dateInput) {
+     const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+     const day = String(d.getDate()).padStart(2, '0');
+     const month = String(d.getMonth() + 1).padStart(2, '0');
+     const year = d.getFullYear();
+     return `${day}/${month}/${year}`;
+   }
+
   };
 
   // ---------- RÉFÉRENCES DOM ----------
@@ -478,7 +486,8 @@
         routeText = state.station;
       }
       
-      const dateStr = Utils.getDateString(new Date(train.time * 1000));
+        const dateObj = new Date(train.time * 1000);
+        const dateStr = Utils.formatDateFR(dateObj);
 
       return `
         <div class="train ${cancelled ? 'cancelled' : ''}" 
@@ -491,6 +500,8 @@
           </div>
           <div style="text-align:right">
             <div class="time">${time}</div>
+            <div class="date">${dateStr}</div>
+
             ${delayText}
           </div>
         </div>
