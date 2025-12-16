@@ -1,18 +1,25 @@
 /* ============================================================
    NextTrain – app.js (Version Complète et Optimisée)
+   - Recherche gares + autocomplete
+   - Recherche train globale (numéro chiffres) + validation Android (Enter/loupe)
+   - Itinéraire cliquable (gare -> liveboard)
+   - Date affichée en JJ/MM/AAAA (sans casser l'API ddmmyy)
    ============================================================ */
 
 (function(){
   // ---------- CONFIGURATION ----------
   const CONFIG = {
-    API_BASE: 'https://api.irail.be',
-    CACHE_TTL: 5 * 60 * 1000,       // Cache mémoire pour détails trains
-    AUTO_REFRESH: 60000,
-    DEBOUNCE_DELAY: 150,
-    FETCH_TIMEOUT: 7000,
-    OFFLINE_STATIONS_TTL: 7 * 24 * 60 * 60 * 1000, // 7 jours
-    OFFLINE_LIVEBOARD_TTL: 10 * 60 * 1000          // 10 minutes
-  };
+  API_BASE: 'https://api.irail.be',
+  CACHE_TTL: 5 * 60 * 1000,       // Cache mémoire pour détails trains
+  AUTO_REFRESH: 60000,
+  DEBOUNCE_DELAY: 150,
+  FETCH_TIMEOUT: 7000,
+  OFFLINE_STATIONS_TTL: 7 * 24 * 60 * 60 * 1000, // 7 jours
+  OFFLINE_LIVEBOARD_TTL: 10 * 60 * 1000,         // 10 minutes
+  GLOBAL_SEARCH_CACHE_TTL: 30 * 60 * 1000,       // 30 minutes (résultats)
+  GLOBAL_SEARCH_NEGATIVE_TTL: 2 * 60 * 1000,     // 2 minutes (pas trouvé)
+  GLOBAL_SEARCH_CONCURRENCY: 6                   // parallélisme recherche
+};
 
   // ---------- ÉTAT GLOBAL ----------
   const state = {
@@ -24,13 +31,14 @@
     expandedVehicle: null,
     trainDetailsCache: {},
     autoRefreshHandle: null,
-    isFetching: false
+    isFetching: false,
+    globalTrainSearchCache: {}
   };
 
   // ---------- STATIONS HUBS (pour marquer les correspondances possibles) ----------
   const STATIONS = {
     'Bruxelles': [
-      'Bruxelles-Midi', 'Bruxelles-Central', 'Bruxelles-Nord', 
+      'Bruxelles-Midi', 'Bruxelles-Central', 'Bruxelles-Nord',
       'Bruxelles-Luxembourg', 'Bruxelles-Schuman', 'Bruxelles-Chapelle',
       'Bruxelles-Ouest', 'Etterbeek', 'Schaerbeek', 'Berchem-Sainte-Agathe'
     ],
@@ -106,17 +114,36 @@
 
     formatTime(timestamp) {
       const date = new Date(timestamp * 1000);
-      return date.toLocaleTimeString('fr-BE', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      return date.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
     },
 
+    // ddmmyy (pour l'API iRail)
     getDateString(date = new Date()) {
       const d = String(date.getDate()).padStart(2, '0');
       const m = String(date.getMonth() + 1).padStart(2, '0');
       const y = String(date.getFullYear()).slice(-2);
       return `${d}${m}${y}`;
+    },
+
+    // JJ/MM/AAAA (affichage)
+    formatDateFR(dateInput) {
+      const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+      if (Number.isNaN(d.getTime())) return '';
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    },
+
+    // ddmmyy -> JJ/MM/AAAA
+    formatDDMMYYToFR(ddmmyy) {
+      const s = String(ddmmyy || '').replace(/\D/g, '');
+      if (s.length !== 6) return s || '';
+      const dd = s.slice(0, 2);
+      const mm = s.slice(2, 4);
+      const yy = s.slice(4, 6);
+      const yyyy = (parseInt(yy, 10) >= 70 ? `19${yy}` : `20${yy}`);
+      return `${dd}/${mm}/${yyyy}`;
     },
 
     debounce(func, delay) {
@@ -131,7 +158,7 @@
       return `${vehicleId}_${dateStr}`;
     },
 
-    // Calculer la distance entre deux coordonnées (Haversine)
+    // Haversine
     getDistance(lat1, lon1, lat2, lon2) {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -161,20 +188,10 @@
       if (!name) return false;
       const target = name.toLowerCase();
       for (const region in STATIONS) {
-        if (STATIONS[region].some(st => st.toLowerCase() === target)) {
-          return true;
-        }
+        if (STATIONS[region].some(st => st.toLowerCase() === target)) return true;
       }
       return false;
-    },
-    formatDateFR(dateInput) {
-     const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
-     const day = String(d.getDate()).padStart(2, '0');
-     const month = String(d.getMonth() + 1).padStart(2, '0');
-     const year = d.getFullYear();
-     return `${day}/${month}/${year}`;
-   }
-
+    }
   };
 
   // ---------- RÉFÉRENCES DOM ----------
@@ -201,12 +218,8 @@
       }
       return cached.data;
     },
-
     set(key, data) {
-      state.trainDetailsCache[key] = {
-        timestamp: Date.now(),
-        data: data
-      };
+      state.trainDetailsCache[key] = { timestamp: Date.now(), data };
     }
   };
 
@@ -214,53 +227,39 @@
   const Offline = {
     saveStations(stations) {
       try {
-        localStorage.setItem('nt_allStations', JSON.stringify({
-          timestamp: Date.now(),
-          stations
-        }));
+        localStorage.setItem('nt_allStations', JSON.stringify({ timestamp: Date.now(), stations }));
       } catch (e) {
         console.warn('Impossible de stocker les gares offline', e);
       }
     },
-
     loadStations() {
       try {
         const raw = localStorage.getItem('nt_allStations');
         if (!raw) return null;
         const data = JSON.parse(raw);
-        if (Date.now() - data.timestamp > CONFIG.OFFLINE_STATIONS_TTL) {
-          return null;
-        }
+        if (Date.now() - data.timestamp > CONFIG.OFFLINE_STATIONS_TTL) return null;
         return data.stations || [];
       } catch (e) {
         console.warn('Erreur lecture gares offline', e);
         return null;
       }
     },
-
     liveboardKey(station, mode) {
       return `nt_liveboard_${station}_${mode}`;
     },
-
     saveLiveboard(station, mode, data) {
       try {
-        localStorage.setItem(this.liveboardKey(station, mode), JSON.stringify({
-          timestamp: Date.now(),
-          data
-        }));
+        localStorage.setItem(this.liveboardKey(station, mode), JSON.stringify({ timestamp: Date.now(), data }));
       } catch (e) {
         console.warn('Impossible de stocker le liveboard offline', e);
       }
     },
-
     loadLiveboard(station, mode) {
       try {
         const raw = localStorage.getItem(this.liveboardKey(station, mode));
         if (!raw) return null;
         const data = JSON.parse(raw);
-        if (Date.now() - data.timestamp > CONFIG.OFFLINE_LIVEBOARD_TTL) {
-          return null;
-        }
+        if (Date.now() - data.timestamp > CONFIG.OFFLINE_LIVEBOARD_TTL) return null;
         return data.data;
       } catch (e) {
         console.warn('Erreur lecture liveboard offline', e);
@@ -272,22 +271,33 @@
   // ---------- API ----------
   const API = {
     async fetchWithTimeout(url, options = {}) {
-      const timeout = options.timeout || CONFIG.FETCH_TIMEOUT;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const timeout = options.timeout || CONFIG.FETCH_TIMEOUT;
 
-      try {
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        return await response.json();
-      } catch (error) {
-        clearTimeout(timeoutId);
-        throw error;
-      }
-    },
+  // Support d'un AbortSignal externe (utile pour annuler une recherche globale)
+  const externalSignal = options.signal;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  let onAbort = null;
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    onAbort = () => controller.abort();
+    try { externalSignal.addEventListener('abort', onAbort, { once: true }); } catch (_) {}
+  }
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+    if (externalSignal && onAbort) {
+      try { externalSignal.removeEventListener('abort', onAbort); } catch (_) {}
+    }
+  }
+},
+
 
     async getDisturbances() {
       try {
@@ -301,7 +311,6 @@
     },
 
     async getAllStations() {
-      // D'abord tenter chargement en ligne
       try {
         const url = `${CONFIG.API_BASE}/stations/?format=json&lang=${Utils.lang()}`;
         const data = await this.fetchWithTimeout(url, { timeout: 10000 });
@@ -310,15 +319,13 @@
         return stations;
       } catch (error) {
         console.warn('Erreur chargement stations, tentative offline:', error);
-        const offline = Offline.loadStations();
-        return offline || [];
+        return Offline.loadStations() || [];
       }
     },
 
     async getStationBoard(station, mode) {
       const arrdep = mode === 'arrival' ? 'ARR' : 'DEP';
       const url = `${CONFIG.API_BASE}/liveboard/?station=${encodeURIComponent(station)}&arrdep=${arrdep}&lang=${Utils.lang()}&format=json`;
-
       try {
         const data = await this.fetchWithTimeout(url);
         Offline.saveLiveboard(station, mode, data);
@@ -326,15 +333,12 @@
       } catch (error) {
         console.warn('Erreur liveboard, tentative offline:', error);
         const offline = Offline.loadLiveboard(station, mode);
-        if (offline) {
-          return offline;
-        }
+        if (offline) return offline;
         throw error;
       }
     },
 
     async getVehicleOnly(vehicleId, dateStr) {
-      // Appel léger : uniquement /vehicle (sans composition)
       const url = `${CONFIG.API_BASE}/vehicle/?id=${encodeURIComponent(vehicleId)}&format=json&lang=${Utils.lang()}&date=${dateStr}`;
       return await this.fetchWithTimeout(url, { timeout: 7000 });
     },
@@ -367,15 +371,16 @@
   // ---------- RENDU UI ----------
   const UI = {
     updateHeader() {
-      DOM.stationNameText.textContent = state.station;
-      DOM.tabDeparture.classList.toggle('active', state.mode === 'departure');
-      DOM.tabArrival.classList.toggle('active', state.mode === 'arrival');
+      if (DOM.stationNameText) DOM.stationNameText.textContent = state.station;
+      if (DOM.tabDeparture) DOM.tabDeparture.classList.toggle('active', state.mode === 'departure');
+      if (DOM.tabArrival) DOM.tabArrival.classList.toggle('active', state.mode === 'arrival');
     },
 
     renderStationSelect(filter = '') {
       const select = DOM.stationSelect;
-      select.innerHTML = '';
+      if (!select) return;
 
+      select.innerHTML = '';
       const query = Utils.normalize(filter);
       let options = [];
 
@@ -383,55 +388,40 @@
         let list = state.allStationsNormalized;
 
         if (query) {
-          // Auto-complétion "Google Maps" : prioriser les débuts de mot
           const starts = [];
           const contains = [];
           for (const s of list) {
-            if (s.norm.startsWith(query)) {
-              starts.push(s.raw);
-            } else if (s.norm.includes(query)) {
-              contains.push(s.raw);
-            }
+            if (s.norm.startsWith(query)) starts.push(s.raw);
+            else if (s.norm.includes(query)) contains.push(s.raw);
           }
-          list = [...starts, ...contains];
+          list = [...starts, ...contains].map(x => ({ raw: x, norm: '' }));
         } else {
-          list = state.allStationsNormalized.map(s => s.raw);
+          list = state.allStationsNormalized;
         }
 
-        const limited = list.slice(0, 60);
+        const limited = list.slice(0, 60).map(s => s.raw);
         options = limited.sort((a, b) => a.standardname.localeCompare(b.standardname));
       }
 
       if (options.length === 0 && filter) {
         select.innerHTML = '<option disabled>❌ Aucune gare trouvée</option>';
       } else {
-        const htmlOptions = options.map(station =>
+        select.innerHTML = options.map(station =>
           `<option value="${station.standardname}" ${station.standardname === state.station ? 'selected' : ''}>${station.standardname}</option>`
         ).join('');
-        select.innerHTML = htmlOptions;
         if (options.length === 60) {
           select.innerHTML += '<option disabled>... (affichage limité à 60 résultats)</option>';
         }
       }
 
-      // Affichage du select uniquement si on tape quelque chose
-      if (filter) {
-        select.style.display = 'block';
-      } else {
-        select.style.display = 'none';
-      }
+      select.style.display = filter ? 'block' : 'none';
     },
 
     renderOccupancy(occupancy) {
-      if (!occupancy || !occupancy.name || occupancy.name === 'unknown') {
-        return '';
-      }
-
+      if (!occupancy || !occupancy.name || occupancy.name === 'unknown') return '';
       const level = occupancy.name;
-      const cssClass = level === 'high' ? 'occ-high' : 
-                      level === 'medium' ? 'occ-medium' : '';
-      const percentage = level === 'high' ? 95 : 
-                        level === 'medium' ? 60 : 25;
+      const cssClass = level === 'high' ? 'occ-high' : level === 'medium' ? 'occ-medium' : '';
+      const percentage = level === 'high' ? 95 : level === 'medium' ? 60 : 25;
 
       return `
         <span class="occupancy ${cssClass}" title="${level}">
@@ -443,9 +433,9 @@
     },
 
     renderDisturbanceBanner() {
-      const relevant = state.disturbances.filter(d => {
+      const relevant = (state.disturbances || []).filter(d => {
         const text = `${d.title} ${d.description}`.toLowerCase();
-        return text.includes(state.station.toLowerCase());
+        return text.includes((state.station || '').toLowerCase());
       }).slice(0, 3);
 
       if (relevant.length === 0) return '';
@@ -464,35 +454,31 @@
       const time = Utils.formatTime(train.time);
       const number = train.vehicleinfo?.shortname || train.vehicle || '—';
       const platform = train.platform || '—';
-      const delayMin = Math.floor(train.delay / 60);
-      const delayText = train.delay > 0 
+      const delayMin = Math.floor((parseInt(train.delay || 0, 10)) / 60);
+      const delayText = (parseInt(train.delay || 0, 10)) > 0
         ? `<div class="delay delayed">+${delayMin} min</div>`
         : `<div class="delay on-time">À l'heure</div>`;
-      
-      const cancelled = train.canceled === '1' || 
-                       train.canceled === 1 || 
-                       train.canceled === true;
-      
+
+      const cancelled = train.canceled === '1' || train.canceled === 1 || train.canceled === true;
       const occupancy = this.renderOccupancy(train.occupancy);
-      
+
       let routeText = '';
-      if (train.direction) {
-        if (state.mode === 'departure') {
-          routeText = `${state.station} → ${train.direction.name}`;
-        } else {
-          routeText = `${train.direction.name} → ${state.station}`;
-        }
+      if (train.direction && train.direction.name) {
+        routeText = state.mode === 'departure'
+          ? `${state.station} → ${train.direction.name}`
+          : `${train.direction.name} → ${state.station}`;
       } else {
         routeText = state.station;
       }
-      
-        const dateObj = new Date(train.time * 1000);
-        const dateStr = Utils.formatDateFR(dateObj);
+
+      // IMPORTANT: data-datestr = ddmmyy (API), affichage = JJ/MM/AAAA
+      const apiDateStr = Utils.getDateString(new Date(train.time * 1000));
+      const displayDateStr = Utils.formatDateFR(new Date(train.time * 1000));
 
       return `
-        <div class="train ${cancelled ? 'cancelled' : ''}" 
-             data-vehicle="${train.vehicle}" 
-             data-datestr="${dateStr}">
+        <div class="train ${cancelled ? 'cancelled' : ''}"
+             data-vehicle="${train.vehicle}"
+             data-datestr="${apiDateStr}">
           <div class="left">
             <div class="train-number">${number} ${occupancy}</div>
             <div class="route">${routeText}</div>
@@ -500,8 +486,7 @@
           </div>
           <div style="text-align:right">
             <div class="time">${time}</div>
-            <div class="date">${dateStr}</div>
-
+            <div class="date">${displayDateStr}</div>
             ${delayText}
           </div>
         </div>
@@ -512,7 +497,6 @@
     renderTrainDetails(details, currentStation) {
       let html = '';
 
-      // Arrêts avec style métro moderne + correspondances possibles
       if (details.vehicle && details.vehicle.stops) {
         const stopsData = details.vehicle.stops.stop;
         if (stopsData) {
@@ -521,31 +505,29 @@
           let lastPassedIndex = -1;
 
           stops.forEach((stop, index) => {
-            const stopTime = parseInt(stop.time);
-            const stopDelay = parseInt(stop.delay || 0);
+            const stopTime = parseInt(stop.time, 10);
+            const stopDelay = parseInt(stop.delay || 0, 10);
             const actualTime = stopTime + stopDelay;
-            if (actualTime <= now) {
-              lastPassedIndex = index;
-            }
+            if (actualTime <= now) lastPassedIndex = index;
           });
 
           html += '<h4>Itinéraire</h4><div class="metro-line">';
-          
+
           stops.forEach((stop, index) => {
-            const isCurrent = stop.station.toLowerCase() === currentStation.toLowerCase();
+            const isCurrent = (stop.station || '').toLowerCase() === (currentStation || '').toLowerCase();
             const isFirst = index === 0;
             const isLast = index === stops.length - 1;
             const isTrainHere = index === lastPassedIndex;
             const isPassed = index < lastPassedIndex;
-            
-            const delay = parseInt(stop.delay || 0);
+
+            const delay = parseInt(stop.delay || 0, 10);
             const delayMin = Math.floor(delay / 60);
             const delayClass = delay > 0 ? 'has-delay' : '';
             const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : '';
-            
+
             const isCanceled = stop.canceled === '1' || stop.canceled === 1;
             const cancelClass = isCanceled ? 'canceled' : '';
-            
+
             const platform = stop.platform ? ` <span class="stop-platform">Voie ${stop.platform}</span>` : '';
             const isConnection = Utils.isConnectionStation(stop.station);
 
@@ -554,9 +536,7 @@
                 <div class="metro-dot">${isTrainHere ? '🚂' : ''}</div>
                 <div class="metro-info">
                   <div class="metro-station">
-                    <a href="#" class="goto-station" data-station="${stop.station}">
-                      ${stop.station}
-                    </a>
+                    <a href="#" class="goto-station" data-station="${stop.station}">${stop.station}</a>
                     ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ''}
                     ${isTrainHere ? ' <span class="train-here">Train ici</span>' : ''}
                     ${platform}
@@ -567,7 +547,7 @@
               </div>
             `;
           });
-          
+
           html += '</div>';
         } else {
           html += '<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>';
@@ -576,54 +556,44 @@
         html += '<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>';
       }
 
-      // Composition
+      // Composition (inchangé)
       if (details.composition) {
         const comp = details.composition.composition;
         if (comp && comp.segments && comp.segments.segment) {
-          const segments = Array.isArray(comp.segments.segment) 
-            ? comp.segments.segment 
-            : [comp.segments.segment];
-          
+          const segments = Array.isArray(comp.segments.segment) ? comp.segments.segment : [comp.segments.segment];
+
           html += `<h4 style="margin-top:16px">Composition</h4>`;
           html += `<div class="train-composition">`;
-          
+
           const seenUnits = new Set();
-          
+
           segments.forEach((seg) => {
             if (seg.composition && seg.composition.units) {
               const units = Array.isArray(seg.composition.units.unit)
                 ? seg.composition.units.unit
                 : [seg.composition.units.unit];
-              
+
               units.forEach(unit => {
                 const materialType = unit.materialType?.parent_type || unit.materialType || '?';
                 const unitId = unit.id || `${materialType}_${Math.random()}`;
                 if (seenUnits.has(unitId)) return;
                 seenUnits.add(unitId);
-                
-                const typeUpper = materialType.toUpperCase();
+
+                const typeUpper = String(materialType).toUpperCase();
                 let icon = '🚃';
                 let label = 'Voiture';
                 let cssClass = 'wagon';
-                
-                if (typeUpper.includes('HLE') || materialType.toLowerCase().includes('loco')) {
-                  icon = '🚂';
-                  label = 'Locomotive';
-                  cssClass = 'loco';
+
+                if (typeUpper.includes('HLE') || String(materialType).toLowerCase().includes('loco')) {
+                  icon = '🚂'; label = 'Locomotive'; cssClass = 'loco';
                 } else if (typeUpper.includes('HVP') || typeUpper.includes('HVR')) {
-                  icon = '🎛️';
-                  label = 'Voiture pilote';
-                  cssClass = 'pilot';
+                  icon = '🎛️'; label = 'Voiture pilote'; cssClass = 'pilot';
                 } else if (typeUpper.match(/^(M|I|B)\d+/)) {
-                  icon = '🚃';
-                  label = 'Voiture';
-                  cssClass = 'wagon';
+                  icon = '🚃'; label = 'Voiture'; cssClass = 'wagon';
                 } else if (typeUpper.includes('AM')) {
-                  icon = '🚊';
-                  label = 'Automotrice';
-                  cssClass = 'emu';
+                  icon = '🚊'; label = 'Automotrice'; cssClass = 'emu';
                 }
-                
+
                 html += `
                   <div class="train-unit ${cssClass}" title="${label}">
                     <div class="unit-icon">${icon}</div>
@@ -633,16 +603,14 @@
               });
             }
           });
-          
+
           html += `</div>`;
           html += `<p style="margin-top:8px;font-size:11px;color:#64748b;text-align:center">← Sens de marche (tête du train à gauche)</p>`;
         } else {
-          html += `<h4 style="margin-top:16px">Composition</h4>`;
-          html += `<div class="info">ℹ️ La composition n'est pas disponible pour ce train</div>`;
+          html += `<h4 style="margin-top:16px">Composition</h4><div class="info">ℹ️ La composition n'est pas disponible pour ce train</div>`;
         }
       } else {
-        html += `<h4 style="margin-top:16px">Composition</h4>`;
-        html += `<div class="info">ℹ️ Données de composition non disponibles</div>`;
+        html += `<h4 style="margin-top:16px">Composition</h4><div class="info">ℹ️ Données de composition non disponibles</div>`;
       }
 
       return html;
@@ -650,18 +618,15 @@
 
     async renderTrainsList(data) {
       const container = DOM.trainsList;
+      if (!container) return;
       container.innerHTML = '';
 
       const key = state.mode === 'departure' ? 'departures' : 'arrivals';
-      const rawTrains = data[key];
-      
+      const rawTrains = data ? data[key] : null;
+
       if (!rawTrains) {
         const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
-        container.innerHTML = `
-          <div class="info">
-            Aucun ${modeText} prévu pour la gare de ${state.station}.
-          </div>
-        `;
+        container.innerHTML = `<div class="info">Aucun ${modeText} prévu pour la gare de ${state.station}.</div>`;
         return;
       }
 
@@ -673,20 +638,15 @@
 
       if (trainsArray.length === 0) {
         const modeText = state.mode === 'departure' ? 'départ' : 'arrivée';
-        container.innerHTML += `
-          <div class="info">
-            Aucun ${modeText} prévu pour la gare de ${state.station}.
-          </div>
-        `;
+        container.innerHTML += `<div class="info">Aucun ${modeText} prévu pour la gare de ${state.station}.</div>`;
         return;
       }
 
-      trainsArray.forEach(train => {
-        container.innerHTML += this.renderTrain(train);
-      });
+      trainsArray.forEach(train => { container.innerHTML += this.renderTrain(train); });
     },
 
     showLoading() {
+      if (!DOM.trainsList) return;
       DOM.trainsList.innerHTML = `
         <div class="loading">
           <div class="spinner"></div>
@@ -696,29 +656,40 @@
     },
 
     showError(message) {
-      DOM.trainsList.innerHTML = `
-        <div class="error">⚠️ ${message}</div>
-      `;
+      if (!DOM.trainsList) return;
+      DOM.trainsList.innerHTML = `<div class="error">⚠️ ${message}</div>`;
     }
   };
 
   // ---------- GESTION DES ÉVÉNEMENTS ----------
   const Events = {
     async handleTrainClick(event) {
+      // Clic sur une gare dans l'itinéraire (delegation)
+      const goto = event.target.closest('.goto-station');
+      if (goto) {
+        event.preventDefault();
+        const stationName = goto.dataset.station;
+        if (stationName) {
+          state.station = stationName;
+          App.saveState();
+          App.init(true);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        return;
+      }
+
       const trainEl = event.target.closest('.train');
       if (!trainEl) return;
 
       const vehicleId = trainEl.dataset.vehicle;
-      const dateStr = trainEl.dataset.datestr;
+      const dateStr = trainEl.dataset.datestr; // ddmmyy (API)
       const detailsEl = trainEl.nextElementSibling;
       const isExpanded = trainEl.classList.contains('expanded');
 
       // Fermer tous les trains
       document.querySelectorAll('.train.expanded').forEach(el => {
         el.classList.remove('expanded');
-        if (el.nextElementSibling) {
-          el.nextElementSibling.innerHTML = '';
-        }
+        if (el.nextElementSibling) el.nextElementSibling.innerHTML = '';
       });
 
       if (isExpanded) {
@@ -729,24 +700,25 @@
       trainEl.classList.add('expanded');
       state.expandedVehicle = vehicleId;
 
-      detailsEl.innerHTML = `
-        <div class="loading">
-          <div class="spinner small"></div>
-          Chargement des détails...
-        </div>
-      `;
+      if (detailsEl) {
+        detailsEl.innerHTML = `
+          <div class="loading">
+            <div class="spinner small"></div>
+            Chargement des détails...
+          </div>
+        `;
+      }
 
       const details = await API.getVehicleDetails(vehicleId, dateStr);
-      detailsEl.innerHTML = UI.renderTrainDetails(details, state.station);
+      if (detailsEl) detailsEl.innerHTML = UI.renderTrainDetails(details, state.station);
 
-      // Pré-charger les arrêts du train suivant pour affichage quasi instantané
       Events.preloadNextTrain(trainEl);
     },
 
     preloadNextTrain(currentTrainEl) {
-      let detailsEl = currentTrainEl.nextElementSibling;
+      const detailsEl = currentTrainEl.nextElementSibling;
       if (!detailsEl) return;
-      let nextTrain = detailsEl.nextElementSibling;
+      const nextTrain = detailsEl.nextElementSibling;
       if (!nextTrain || !nextTrain.classList.contains('train')) return;
 
       const vehicleId = nextTrain.dataset.vehicle;
@@ -762,16 +734,11 @@
     handleStationSearch: Utils.debounce((event) => {
       UI.renderStationSelect(event.target.value);
     }, CONFIG.DEBOUNCE_DELAY),
-   handleTrainSearch(event) {
-      // Cette input sert à chercher un train par son NUMÉRO (digits) dans tout iRail.
-      // On ne filtre plus uniquement la liste affichée.
-      // La recherche est déclenchée via Enter / touche "loupe" / change (voir listeners).
-      // Ici, sur input, on se contente de réagir au "vide".
+
+    // input: si vide, on revient au liveboard normal
+    handleTrainSearchInput(event) {
       const v = (event && event.target) ? event.target.value : '';
-      if (!v || !v.trim()) {
-        // si vide, on recharge la liste courante
-        App.init(true);
-      }
+      if (!v || !v.trim()) App.init(true);
     },
 
     async handleTrainSearchSubmit(event) {
@@ -785,7 +752,6 @@
       await App.searchTrainGlobal(digits);
     },
 
-
     handleStationSearchKeyDown(event) {
       const select = DOM.stationSelect;
       if (!select) return;
@@ -794,9 +760,7 @@
         if (select.options.length > 0) {
           select.style.display = 'block';
           select.focus();
-          if (select.selectedIndex < 0) {
-            select.selectedIndex = 0;
-          }
+          if (select.selectedIndex < 0) select.selectedIndex = 0;
           event.preventDefault();
         }
       } else if (event.key === 'Enter') {
@@ -831,12 +795,9 @@
     },
 
     handleDocumentClick(event) {
-      const isSelect = DOM.stationSelect.contains(event.target);
-      const isSearch = DOM.stationSearch.contains(event.target);
-      
-      if (!isSelect && !isSearch) {
-        DOM.stationSelect.style.display = 'none';
-      }
+      const isSelect = DOM.stationSelect && DOM.stationSelect.contains(event.target);
+      const isSearch = DOM.stationSearch && DOM.stationSearch.contains(event.target);
+      if (!isSelect && !isSearch && DOM.stationSelect) DOM.stationSelect.style.display = 'none';
     },
 
     async handleLocate() {
@@ -845,8 +806,10 @@
         return;
       }
 
-      DOM.locateBtn.disabled = true;
-      DOM.locateBtn.textContent = '📍 Localisation...';
+      if (DOM.locateBtn) {
+        DOM.locateBtn.disabled = true;
+        DOM.locateBtn.textContent = '📍 Localisation...';
+      }
 
       try {
         const position = await new Promise((resolve, reject) => {
@@ -874,23 +837,22 @@
         state.station = nearest.standardname;
         App.saveState();
         App.init(true);
-        
+
         const distance = nearest._distance || 0;
-        DOM.stationNameText.textContent = `${nearest.standardname} (${distance.toFixed(1)} km)`;
-        setTimeout(() => {
-          DOM.stationNameText.textContent = nearest.standardname;
-        }, 3000);
+        if (DOM.stationNameText) {
+          DOM.stationNameText.textContent = `${nearest.standardname} (${distance.toFixed(1)} km)`;
+          setTimeout(() => { DOM.stationNameText.textContent = nearest.standardname; }, 3000);
+        }
 
       } catch (error) {
         console.error('Erreur géolocalisation:', error);
-        if (error.code === 1) {
-          alert('Vous devez autoriser la géolocalisation pour utiliser cette fonctionnalité.');
-        } else {
-          alert('Erreur lors de la géolocalisation. Veuillez réessayer.');
-        }
+        if (error.code === 1) alert('Vous devez autoriser la géolocalisation pour utiliser cette fonctionnalité.');
+        else alert('Erreur lors de la géolocalisation. Veuillez réessayer.');
       } finally {
-        DOM.locateBtn.disabled = false;
-        DOM.locateBtn.textContent = '📍 Localiser';
+        if (DOM.locateBtn) {
+          DOM.locateBtn.disabled = false;
+          DOM.locateBtn.textContent = '📍 Localiser';
+        }
       }
     },
 
@@ -912,12 +874,7 @@
       });
 
       if (!nearest) return null;
-
-      // Seuils : <2 km parfait ; <15 km encore acceptable ; au-delà on considère que c'est trop loin
-      if (minDistance > 15) {
-        return null;
-      }
-
+      if (minDistance > 15) return null;
       nearest._distance = minDistance;
       return nearest;
     }
@@ -930,164 +887,223 @@
       localStorage.setItem('nt_station', state.station);
     },
 
-    // --- Recherche globale par numéro (digits) ---
-    buildVehicleIdCandidates(digits) {
-      // On teste plusieurs familles de trains (NMBS/SNCB + internationaux)
-      // iRail utilise souvent des IDs du type: BE.NMBS.IC2120
-      const prefixes = [
-        'IC','L','P','S','IR',
-        'EC','ICE','TGV','THA','Eurostar','EXT'
-      ];
+// --- Cache local (résultats de recherche globale par numéro) ---
+loadGlobalSearchCache() {
+  try {
+    const raw = localStorage.getItem('nt_globalTrainCache_v1');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      state.globalTrainSearchCache = parsed;
+    }
+  } catch (e) {
+    // ignore
+  }
+},
 
-      // Certains systèmes utilisent aussi "ICT" ou autres; on ajoute quelques variantes
-      const extraPrefixes = ['ICT','ICD','R','RE','RB'];
+saveGlobalSearchCache() {
+  try {
+    localStorage.setItem('nt_globalTrainCache_v1', JSON.stringify(state.globalTrainSearchCache || {}));
+  } catch (e) {
+    // ignore
+  }
+},
 
-      const all = [...prefixes, ...extraPrefixes];
+getGlobalCacheEntry(digits) {
+  const c = state.globalTrainSearchCache || {};
+  const entry = c[String(digits)];
+  if (!entry || !entry.ts) return null;
+  const ttl = entry.miss ? CONFIG.GLOBAL_SEARCH_NEGATIVE_TTL : CONFIG.GLOBAL_SEARCH_CACHE_TTL;
+  if (Date.now() - entry.ts > ttl) return null;
+  return entry;
+},
 
-      const uniq = new Set();
-      all.forEach(p => uniq.add(`BE.NMBS.${p}${digits}`));
+setGlobalCacheEntry(digits, entry) {
+  if (!state.globalTrainSearchCache) state.globalTrainSearchCache = {};
+  state.globalTrainSearchCache[String(digits)] = { ...entry, ts: Date.now() };
+  this.saveGlobalSearchCache();
+},
 
-      // Certains trains internationaux peuvent être encodés différemment; on tente aussi sans "BE.NMBS."
-      all.forEach(p => uniq.add(`${p}${digits}`));
+async probeCandidates(candidates, apiDateStr) {
+  const concurrency = CONFIG.GLOBAL_SEARCH_CONCURRENCY || 6;
+  const batchController = new AbortController();
+  let idx = 0;
+  let foundVehicleId = null;
 
-      return Array.from(uniq);
-    },
-
-    async searchTrainGlobal(digits) {
-      // UX: on affiche un loader dédié
-      UI.showLoading();
-      DOM.trainsList.innerHTML = `
-        <div class="loading">
-          <div class="spinner"></div>
-          <div style="margin-top:10px">Recherche du train <strong>${digits}</strong>…</div>
-          <div style="margin-top:6px;font-size:12px;color:#64748b">
-            Astuce : tape juste les chiffres (ex: 2120).
-          </div>
-        </div>
-      `;
-
-      // On essaye d'abord aujourd'hui (prioritaire), puis hier (utile après minuit),
-      // puis demain (dernier recours).
-      const now = new Date();
-      const dayList = [
-        new Date(now),
-        new Date(now.getTime() - 24*60*60*1000),
-        new Date(now.getTime() + 24*60*60*1000)
-      ];
-
-      const candidates = this.buildVehicleIdCandidates(digits);
-
-      let found = null;
-
-      for (const day of dayList) {
-        const dateStr = Utils.getDateString(day);
-
-        for (const vehicleId of candidates) {
-          try {
-            const vehicle = await API.getVehicleOnly(vehicleId, dateStr);
-            // Si on a des stops, c'est un match solide
-            if (vehicle && vehicle.stops && vehicle.stops.stop) {
-              found = { vehicleId, dateStr };
-              break;
-            }
-          } catch (e) {
-            // 404/400 -> pas ce train
-          }
+  const worker = async () => {
+    while (!foundVehicleId && idx < candidates.length) {
+      const vehicleId = candidates[idx++];
+      try {
+        const v = await API.getVehicleOnly(vehicleId, apiDateStr, { signal: batchController.signal });
+        if (v && v.stops && v.stops.stop) {
+          foundVehicleId = vehicleId;
+          batchController.abort(); // stoppe les autres requêtes en cours
+          return;
         }
-        if (found) break;
+      } catch (e) {
+        // ignore (404/400/abort/etc.)
+      }
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker());
+  await Promise.all(workers);
+  return foundVehicleId;
+},
+
+    // --- Recherche globale par numéro (digits) ---
+                   buildVehicleIdCandidates(digits) {
+  // On teste plusieurs familles de trains (NMBS/SNCB + internationaux)
+  // iRail utilise souvent des IDs du type: BE.NMBS.IC2120
+  const primary = ['IC','S','L','P','IR'];
+  const secondary = ['EC','ICE','TGV','THA','Eurostar','EXT','ICT','ICD','R','RE','RB'];
+
+  const uniq = new Set();
+
+  // Priorité: BE.NMBS.<type><digits>
+  [...primary, ...secondary].forEach(p => uniq.add(`BE.NMBS.${p}${digits}`));
+
+  // Fallback: sans namespace (certains flux)
+  [...primary, ...secondary].forEach(p => uniq.add(`${p}${digits}`));
+
+  return Array.from(uniq);
+},
+
+                   async searchTrainGlobal(digits) {
+  // 1) Cache: si on a déjà trouvé récemment, on ré-affiche instantanément
+  const cached = this.getGlobalCacheEntry(digits);
+  if (cached) {
+    if (cached.miss) {
+      UI.showError(`Aucun train trouvé avec le numéro <strong>${digits}</strong> (cache récent).`);
+      return;
+    }
+    return await this.renderGlobalTrainResult(digits, cached.vehicleId, cached.apiDateStr);
+  }
+
+  // UX: loader dédié
+  DOM.trainsList.innerHTML = `
+    <div class="loading">
+      <div class="spinner"></div>
+      <div style="margin-top:10px">Recherche du train <strong>${digits}</strong>…</div>
+      <div style="margin-top:6px;font-size:12px;color:#64748b">
+        Astuce : tape juste les chiffres (ex: 2120).
+      </div>
+    </div>
+  `;
+
+  // On essaye d'abord aujourd'hui (prioritaire), puis hier (utile après minuit),
+  // puis demain (dernier recours).
+  const now = new Date();
+  const dayList = [
+    new Date(now),
+    new Date(now.getTime() - 24 * 60 * 60 * 1000),
+    new Date(now.getTime() + 24 * 60 * 60 * 1000)
+  ];
+
+  const candidates = this.buildVehicleIdCandidates(digits);
+
+  let foundVehicleId = null;
+  let foundDateStr = null;
+
+  for (const day of dayList) {
+    const apiDateStr = Utils.getDateString(day);
+    const hit = await this.probeCandidates(candidates, apiDateStr);
+    if (hit) {
+      foundVehicleId = hit;
+      foundDateStr = apiDateStr;
+      break;
+    }
+  }
+
+  if (!foundVehicleId) {
+    this.setGlobalCacheEntry(digits, { miss: true });
+    UI.showError(`Aucun train trouvé avec le numéro <strong>${digits}</strong> (sur aujourd'hui/hier/demain).`);
+    return;
+  }
+
+  // Cache positif
+  this.setGlobalCacheEntry(digits, { vehicleId: foundVehicleId, apiDateStr: foundDateStr });
+
+  return await this.renderGlobalTrainResult(digits, foundVehicleId, foundDateStr);
+},
+
+async renderGlobalTrainResult(digits, vehicleId, apiDateStr) {
+  // On charge les détails complets (vehicle + composition) via le cache existant
+  const details = await API.getVehicleDetails(vehicleId, apiDateStr);
+
+  const niceLabel = vehicleId.split('.').pop() || vehicleId;
+  const prettyDate = Utils.formatDateFR(
+    new Date(
+      2000 + parseInt(apiDateStr.slice(4, 6), 10),
+      parseInt(apiDateStr.slice(2, 4), 10) - 1,
+      parseInt(apiDateStr.slice(0, 2), 10)
+    )
+  );
+
+  DOM.trainsList.innerHTML = `
+    <div class="banner" style="margin-bottom:10px">
+      <strong>🔎 Résultat</strong><br>
+      Train <strong>${digits}</strong> — ${niceLabel}
+      <div style="margin-top:6px;font-size:12px;color:#64748b">
+        Date : <strong>${prettyDate}</strong> • Appuie sur une gare dans l’itinéraire pour afficher ses horaires.
+      </div>
+    </div>
+    <div class="train expanded" data-vehicle="${vehicleId}" data-datestr="${apiDateStr}">
+      <div class="left">
+        <div class="train-number">${niceLabel}</div>
+        <div class="route">Recherche globale</div>
+        <div class="platform">Date: ${prettyDate}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="time">—</div>
+        <div class="delay on-time">Détails</div>
+      </div>
+    </div>
+    <div class="details">${UI.renderTrainDetails(details, state.station)}</div>
+  `;
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+},
+
+setupListeners() {
+      if (DOM.stationSearch) {
+        DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
+        DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
       }
 
-      if (!found) {
-        UI.showError(`Aucun train trouvé avec le numéro <strong>${digits}</strong> (sur aujourd'hui/hier/demain).`);
-        return;
-      }
-
-      // On charge les détails complets (vehicle + composition) via le cache existant
-      const details = await API.getVehicleDetails(found.vehicleId, found.dateStr);
-
-      // Affichage d'un "résultat" unique
-      const niceLabel = found.vehicleId.split('.').pop() || found.vehicleId;
-      DOM.trainsList.innerHTML = `
-        <div class="banner" style="margin-bottom:10px">
-          <strong>🔎 Résultat</strong><br>
-          Train <strong>${niceLabel.replace(/\\D/g,'') || digits}</strong> — ${niceLabel}
-          <div style="margin-top:6px;font-size:12px;color:#64748b">
-            Appuie sur une gare dans l’itinéraire pour afficher ses horaires.
-          </div>
-        </div>
-        <div class="train expanded" data-vehicle="${found.vehicleId}" data-datestr="${found.dateStr}">
-          <div class="left">
-            <div class="train-number">${niceLabel}</div>
-            <div class="route">Recherche globale</div>
-            <div class="platform">Date: ${found.dateStr}</div>
-          </div>
-          <div style="text-align:right">
-            <div class="time">—</div>
-            <div class="delay on-time">Détails</div>
-          </div>
-        </div>
-        <div class="details">${UI.renderTrainDetails(details, state.station)}</div>
-      `;
-
-      // Scroll en haut pour que ça soit clair sur mobile
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-
-    setupListeners() {
-      DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
-      DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
       if (DOM.trainSearch) {
         // input: si on vide, on revient à la liste
-        DOM.trainSearch.addEventListener('input', Events.handleTrainSearch);
+        DOM.trainSearch.addEventListener('input', Events.handleTrainSearchInput);
 
         // Android/iOS: Enter / "Go" / "Search"
         DOM.trainSearch.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            Events.handleTrainSearchSubmit(e);
-          }
+          if (e.key === 'Enter') Events.handleTrainSearchSubmit(e);
         });
 
-        // Sur certains mobiles, l'event "search" est émis (type="search")
+        // Type="search" sur iOS/Safari peut émettre "search"
         DOM.trainSearch.addEventListener('search', (e) => {
           Events.handleTrainSearchSubmit(e);
         });
 
-        // Fallback: quand l'utilisateur valide/blur
+        // Fallback: blur/validation
         DOM.trainSearch.addEventListener('change', (e) => {
           Events.handleTrainSearchSubmit(e);
         });
       }
 
-      DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
-      DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
-      DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
-      DOM.refreshBtn.addEventListener('click', () => this.init(true));
-      DOM.trainsList.addEventListener('click', Events.handleTrainClick);
-      DOM.locateBtn.addEventListener('click', Events.handleLocate);
+      if (DOM.stationSelect) DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
+      if (DOM.tabDeparture) DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
+      if (DOM.tabArrival) DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
+      if (DOM.refreshBtn) DOM.refreshBtn.addEventListener('click', () => this.init(true));
+      if (DOM.trainsList) DOM.trainsList.addEventListener('click', Events.handleTrainClick);
+      if (DOM.locateBtn) DOM.locateBtn.addEventListener('click', Events.handleLocate);
       document.addEventListener('click', Events.handleDocumentClick);
-
-      // Navigation depuis l’itinéraire : clic sur une gare → liveboard de cette gare
-      document.addEventListener('click', (e) => {
-        const link = e.target.closest('.goto-station');
-        if (!link) return;
-        e.preventDefault();
-        const stationName = link.dataset.station;
-        if (!stationName) return;
-        state.station = stationName;
-        this.saveState();
-        this.init(true);
-      });
     },
 
     async tryGeolocation() {
       const savedStation = localStorage.getItem('nt_station');
-      if (savedStation) {
-        return false;
-      }
-
-      if (!navigator.geolocation) {
-        return false;
-      }
+      if (savedStation) return false;
+      if (!navigator.geolocation) return false;
 
       try {
         const position = await new Promise((resolve, reject) => {
@@ -1106,10 +1122,7 @@
           await new Promise(resolve => setTimeout(resolve, 200));
           attempts++;
         }
-
-        if (state.allStations.length === 0) {
-          return false;
-        }
+        if (state.allStations.length === 0) return false;
 
         const nearest = Events.findNearestStation(userLat, userLon);
         if (nearest) {
@@ -1117,7 +1130,6 @@
           this.saveState();
           return true;
         }
-
       } catch (error) {
         console.log('Géolocalisation échouée ou refusée:', error.message);
         return false;
@@ -1128,19 +1140,15 @@
 
     async init(forceRefresh = false) {
       if (state.isFetching && !forceRefresh) return;
-      
+
       state.isFetching = true;
       UI.updateHeader();
       UI.showLoading();
       if (DOM.trainSearch) DOM.trainSearch.value = '';
 
-
-      if (state.autoRefreshHandle) {
-        clearTimeout(state.autoRefreshHandle);
-      }
+      if (state.autoRefreshHandle) clearTimeout(state.autoRefreshHandle);
 
       try {
-        // Charger les gares depuis cache offline en priorité si jamais pas encore
         if (state.allStations.length === 0) {
           const offlineStations = Offline.loadStations();
           if (offlineStations && offlineStations.length > 0) {
@@ -1149,36 +1157,24 @@
           }
         }
 
-        // Si toujours rien, ou pour rafraîchir la liste, appel API
         if (state.allStations.length === 0) {
-          console.log('Chargement de toutes les gares SNCB...');
           state.allStations = await API.getAllStations();
-          console.log(`${state.allStations.length} gares chargées`);
           Utils.buildStationsIndex();
         } else if (state.allStationsNormalized.length === 0) {
           Utils.buildStationsIndex();
         }
 
-        // Perturbations
         state.disturbances = await API.getDisturbances();
-        
-        // Horaires
+
         const data = await API.getStationBoard(state.station, state.mode);
         await UI.renderTrainsList(data);
 
-        // Auto-refresh
-        state.autoRefreshHandle = setTimeout(
-          () => this.init(), 
-          CONFIG.AUTO_REFRESH
-        );
-
+        state.autoRefreshHandle = setTimeout(() => this.init(), CONFIG.AUTO_REFRESH);
       } catch (error) {
         console.error('Erreur initialisation:', error);
-        
         const message = error.message && error.message.includes('HTTP 404')
           ? `Impossible de trouver la gare **${state.station}**. Vérifiez l'orthographe ou choisissez dans la liste.`
           : `Impossible de charger les horaires. Veuillez réessayer. (${error.message || 'Erreur inconnue'})`;
-        
         UI.showError(message);
       } finally {
         state.isFetching = false;
@@ -1186,19 +1182,14 @@
     },
 
     async start() {
+      this.loadGlobalSearchCache();
       this.setupListeners();
-      
-      // Démarrer le chargement initial
+
       const initPromise = this.init();
-      
-      // En parallèle, essayer la géolocalisation auto à la première visite
       const geolocated = await this.tryGeolocation();
-      
-      if (geolocated) {
-        await this.init(true);
-      } else {
-        await initPromise;
-      }
+
+      if (geolocated) await this.init(true);
+      else await initPromise;
     }
   };
 
