@@ -446,23 +446,40 @@
       `;
     },
 
+    
     renderTrain(train) {
       const time = Utils.formatTime(train.time);
-      const number = train.vehicleinfo?.shortname || train.vehicle || '—';
+
+      // Numéro du train (court si possible)
+      let number = train.vehicleinfo?.shortname || '';
+      if (!number) {
+        // fallback: extraire le dernier segment de l'ID (ex: BE.NMBS.IC2112 -> IC2112)
+        if (typeof train.vehicle === 'string') {
+          const parts = train.vehicle.split('.');
+          number = parts[parts.length - 1] || train.vehicle;
+        } else {
+          number = train.vehicle || '—';
+        }
+      }
+
+      // Pour la recherche "numéro uniquement" (digits)
+      const trainNumDigits = String(number).replace(/\D/g, '');
+
       const platform = train.platform || '—';
-      const delayMin = Math.floor(train.delay / 60);
-      const delayText = train.delay > 0 
+      const delaySec = parseInt(train.delay || 0, 10);
+      const delayMin = Math.floor(delaySec / 60);
+      const delayText = delaySec > 0
         ? `<div class="delay delayed">+${delayMin} min</div>`
         : `<div class="delay on-time">À l'heure</div>`;
-      
-      const cancelled = train.canceled === '1' || 
-                       train.canceled === 1 || 
+
+      const cancelled = train.canceled === '1' ||
+                       train.canceled === 1 ||
                        train.canceled === true;
-      
+
       const occupancy = this.renderOccupancy(train.occupancy);
-      
+
       let routeText = '';
-      if (train.direction) {
+      if (train.direction?.name) {
         if (state.mode === 'departure') {
           routeText = `${state.station} → ${train.direction.name}`;
         } else {
@@ -471,13 +488,14 @@
       } else {
         routeText = state.station;
       }
-      
+
       const dateStr = Utils.getDateString(new Date(train.time * 1000));
 
       return `
-        <div class="train ${cancelled ? 'cancelled' : ''}" 
-             data-vehicle="${train.vehicle}" 
-             data-datestr="${dateStr}">
+        <div class="train ${cancelled ? 'cancelled' : ''}"
+             data-vehicle="${train.vehicle}"
+             data-datestr="${dateStr}"
+             data-trainnum="${trainNumDigits}">
           <div class="left">
             <div class="train-number">${number} ${occupancy}</div>
             <div class="route">${routeText}</div>
@@ -491,6 +509,7 @@
         <div class="details"></div>
       `;
     },
+
 
     renderTrainDetails(details, currentStation) {
       let html = '';
@@ -745,31 +764,63 @@
     handleStationSearch: Utils.debounce((event) => {
       UI.renderStationSelect(event.target.value);
     }, CONFIG.DEBOUNCE_DELAY),
-   handleTrainSearch(event) {
-  const q = Utils.normalize(event.target.value.trim());
-  const trains = document.querySelectorAll('.train');
+   
+    // Recherche dans la liste (train par numéro + route en bonus).
+    // - Si tu tapes des CHIFFRES → on filtre sur le numéro de train (digits uniquement).
+    // - Si tu tapes des LETTRES → on filtre sur la route.
+    // - Sur mobile (touche "Entrée"/"Rechercher"), on valide en scrollant sur le 1er résultat.
+    handleTrainSearch(event, validate = false) {
+      const value = (event && event.target ? event.target.value : (DOM.trainSearch ? DOM.trainSearch.value : '')) || '';
+      const q = Utils.normalize(value.trim());
+      const qDigits = q.replace(/\D/g, ''); // digits only
+      const trains = document.querySelectorAll('.train');
 
-  if (!q) {
-    trains.forEach(t => t.style.display = '');
-    return;
-  }
+      if (!q) {
+        trains.forEach(t => t.style.display = '');
+        // aussi masquer les blocs détails s’ils sont vides
+        return;
+      }
 
-  trains.forEach(train => {
-    const num = Utils.normalize(train.querySelector('.train-number')?.textContent) || '';
-    const route = Utils.normalize(train.querySelector('.route')?.textContent) || '';
+      let firstVisible = null;
 
-    const score = (str) => {
-      if (!str) return 0;
-      if (str.startsWith(q)) return 5;     // Meilleur score
-      if (str.includes(q)) return 3;       // OK
-      let m = 0;                           // fuzzy "pauvre"
-      for (let c of q) if (str.includes(c)) m++;
-      return m >= q.length - 1 ? 1 : 0;    // tolère erreurs
-    };
+      trains.forEach(train => {
+        const numDigits = (train.dataset.trainnum || '').trim();
+        const numText = Utils.normalize(train.querySelector('.train-number')?.textContent) || '';
+        const route = Utils.normalize(train.querySelector('.route')?.textContent) || '';
 
-    const s = Math.max(score(num), score(route));
-train.style.setProperty('display', s > 0 ? '' : 'none', 'important');});
-},
+        let ok = false;
+
+        // Priorité : recherche par chiffres
+        if (qDigits) {
+          // match "contient" pour tolérer (ex: 2112 → IC2112)
+          ok = numDigits.includes(qDigits) || numText.includes(qDigits);
+        } else {
+          // fallback : route / texte
+          ok = route.includes(q) || numText.includes(q);
+        }
+
+        train.style.display = ok ? '' : 'none';
+
+        // cache aussi le bloc détails si on masque le train
+        const details = train.nextElementSibling;
+        if (details && details.classList.contains('details')) {
+          if (!ok) {
+            details.style.display = 'none';
+          } else {
+            details.style.display = '';
+          }
+        }
+
+        if (ok && !firstVisible) firstVisible = train;
+      });
+
+      if (validate && firstVisible) {
+        firstVisible.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const prev = firstVisible.style.boxShadow;
+        firstVisible.style.boxShadow = '0 0 0 3px rgba(59,130,246,.35)';
+        setTimeout(() => { firstVisible.style.boxShadow = prev; }, 1200);
+      }
+    },
 
 
     handleStationSearchKeyDown(event) {
@@ -919,22 +970,34 @@ train.style.setProperty('display', s > 0 ? '' : 'none', 'important');});
     setupListeners() {
       DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
       DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
-      DOM.trainSearch.addEventListener('input', Events.handleTrainSearch);
+      DOM.stationSearch.addEventListener('keyup', Events.handleStationSearchKeyDown);
+      DOM.stationSearch.addEventListener('search', Events.handleStationSearchKeyDown);
+      DOM.stationSearch.addEventListener('change', Events.handleStationSearchKeyDown);
 
-// ENTER Android / iPhone
-DOM.trainSearch.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    Events.handleTrainSearch();
-  }
-});
+      if (DOM.trainSearch) {
+        // Filtrage en live
+        DOM.trainSearch.addEventListener('input', (e) => Events.handleTrainSearch(e, false));
 
-// Touche "loupe" Android
-DOM.trainSearch.addEventListener('search', Events.handleTrainSearch);
+        // Validation "Entrée" (desktop) + claviers mobiles (Android/iOS)
+        const validateIfEnter = (e) => {
+          const isEnter = (e.key === 'Enter' || e.keyCode === 13);
+          if (!isEnter) return;
+          e.preventDefault();
+          Events.handleTrainSearch(null, true);
+          // Sur mobile, fermer le clavier si possible
+          try { e.target.blur(); } catch (_) {}
+        };
 
-// Fallback vieux Android / Chrome
-DOM.trainSearch.addEventListener('change', Events.handleTrainSearch);  
-      DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
+        DOM.trainSearch.addEventListener('keydown', validateIfEnter);
+        DOM.trainSearch.addEventListener('keyup', validateIfEnter);
+
+        // Touche "loupe" / action search (certains Android)
+        DOM.trainSearch.addEventListener('search', () => Events.handleTrainSearch(null, true));
+
+        // Fallback : certains navigateurs n'envoient pas "search"
+        DOM.trainSearch.addEventListener('change', () => Events.handleTrainSearch(null, false));
+      }
+DOM.stationSelect.addEventListener('change', Events.handleStationSelect);
       DOM.tabDeparture.addEventListener('click', () => Events.handleModeChange('departure'));
       DOM.tabArrival.addEventListener('click', () => Events.handleModeChange('arrival'));
       DOM.refreshBtn.addEventListener('click', () => this.init(true));
