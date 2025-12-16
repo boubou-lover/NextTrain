@@ -752,32 +752,6 @@
       await App.searchTrainGlobal(digits);
     },
 
-    handleStationSearchKeyDown(event) {
-      const select = DOM.stationSelect;
-      if (!select) return;
-
-      if (event.key === 'ArrowDown') {
-        if (select.options.length > 0) {
-          select.style.display = 'block';
-          select.focus();
-          if (select.selectedIndex < 0) select.selectedIndex = 0;
-          event.preventDefault();
-        }
-      } else if (event.key === 'Enter') {
-        const opt = select.options[select.selectedIndex >= 0 ? select.selectedIndex : 0];
-        if (opt && !opt.disabled) {
-          state.station = opt.value;
-          App.saveState();
-          DOM.stationSearch.value = '';
-          select.style.display = 'none';
-          App.init(true);
-          event.preventDefault();
-        }
-      } else if (event.key === 'Escape') {
-        select.style.display = 'none';
-      }
-    },
-
     handleStationSelect(event) {
       const value = event.target.value;
       if (!value) return;
@@ -877,7 +851,28 @@
       if (minDistance > 15) return null;
       nearest._distance = minDistance;
       return nearest;
-    }
+    },
+    submitStationSearch() {
+  const select = DOM.stationSelect;
+  if (!select) return;
+
+  if (select.style.display === 'none') return;
+
+  let opt = select.options[select.selectedIndex];
+  if (!opt || opt.disabled) {
+    opt = Array.from(select.options).find(o => !o.disabled);
+  }
+  if (!opt) return;
+
+  state.station = opt.value;
+  App.saveState();
+
+  DOM.stationSearch.value = '';
+  select.style.display = 'none';
+
+  App.init(true);
+},
+
   };
 
   // ---------- APPLICATION ----------
@@ -1068,7 +1063,6 @@ async renderGlobalTrainResult(digits, vehicleId, apiDateStr) {
 setupListeners() {
       if (DOM.stationSearch) {
         DOM.stationSearch.addEventListener('input', Events.handleStationSearch);
-        DOM.stationSearch.addEventListener('keydown', Events.handleStationSearchKeyDown);
       }
 
       if (DOM.trainSearch) {
