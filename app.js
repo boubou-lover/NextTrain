@@ -462,14 +462,18 @@
       const cancelled = train.canceled === '1' || train.canceled === 1 || train.canceled === true;
       const occupancy = this.renderOccupancy(train.occupancy);
 
-      let routeText = '';
-      if (train.direction && train.direction.name) {
-        routeText = state.mode === 'departure'
-          ? `${state.station} → ${train.direction.name}`
-          : `${train.direction.name} → ${state.station}`;
-      } else {
-        routeText = state.station;
-      }
+     let routeText = '';
+ 
+     if (train.direction && train.direction.name) {
+     routeText = state.mode === 'departure'
+     ? `vers ${train.direction.name}`
+     : `depuis ${train.direction.name}`;
+}    else {
+  routeText = state.mode === 'departure'
+    ? 'destination inconnue'
+    : 'origine inconnue';
+}
+
 
       // IMPORTANT: data-datestr = ddmmyy (API), affichage = JJ/MM/AAAA
       const apiDateStr = Utils.getDateString(new Date(train.time * 1000));
