@@ -1,6 +1,6 @@
 // === Service Worker – Hot Update Instantané ===
 // Change juste ce numéro à chaque nouvelle version
-const CACHE_NAME = 'nexttrain-v9.212';
+const CACHE_NAME = 'nexttrain-v9.220';
 
 const urlsToCache = [
   '/',
