@@ -361,13 +361,26 @@
     },
 
     extractTrainNumber(train) {
-      if (train?.vehicleinfo?.shortname) return String(train.vehicleinfo.shortname);
-      if (typeof train?.vehicle === "string") {
-        const parts = train.vehicle.split(".");
-        return parts[parts.length - 1] || train.vehicle;
-      }
-      return "—";
-    },
+  // Source la plus fiable : train.vehicle (ex: "BE.NMBS.IC2120")
+  if (typeof train?.vehicle === "string") {
+    const id = train.vehicle.split(".").pop(); // IC2120
+
+    const match = id.match(/^([A-Z]+)(\d+)$/);
+    if (match) {
+      const [, type, num] = match;
+      return `${type} ${num}`; // IC 2120
+    }
+
+    return id;
+  }
+
+  // Fallback (au cas très rare où vehicle n'existe pas)
+  if (train?.vehicleinfo?.shortname) {
+    return String(train.vehicleinfo.shortname);
+  }
+
+  return "—";
+},
 
     renderTrain(train) {
       const time = Utils.formatTime(train.time);
