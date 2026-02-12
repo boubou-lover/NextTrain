@@ -800,34 +800,15 @@
 
     // ========== RECHERCHE GLOBALE OPTIMISÉE ==========
     buildVehicleIdCandidates(digits) {
-      // Ordre de priorité basé sur la fréquence des trains en Belgique
-      // Format API iRail: BE.NMBS.{TYPE}{NUMBER}
-      return [
-        // 🔥 PRIORITÉ HAUTE - Trains nationaux les plus fréquents
-        `BE.NMBS.IC${digits}`,    // InterCity (le plus fréquent)
-        `BE.NMBS.L${digits}`,     // Local
-        `BE.NMBS.P${digits}`,     // Peak hour
-        `BE.NMBS.S${digits}`,     // S-train
-        
-        // 🟡 PRIORITÉ MOYENNE - Trains régionaux et internationaux
-        `BE.NMBS.IR${digits}`,    // InterRegio
-        `BE.NMBS.ICT${digits}`,   // IC court (parfois utilisé)
-        
-        // 🔵 PRIORITÉ BASSE - Trains internationaux
-        `BE.NMBS.THA${digits}`,   // Thalys
-        `BE.NMBS.EC${digits}`,    // EuroCity
-        `BE.NMBS.ICE${digits}`,   // ICE
-        `BE.NMBS.TGV${digits}`,   // TGV
-        `BE.NMBS.EUROSTAR${digits}`, // Eurostar
-        `BE.NMBS.EXT${digits}`,   // External
-        
-        // ⚠️ FALLBACKS - Formats courts (moins fiables mais parfois nécessaires)
-        `IC${digits}`,
-        `L${digits}`,
-        `P${digits}`,
-        `S${digits}`
-      ];
-    },
+  // Version ultra rapide
+  return [
+    `BE.NMBS.IC${digits}`,
+    `BE.NMBS.L${digits}`,
+    `BE.NMBS.P${digits}`,
+    `BE.NMBS.S${digits}`
+  ];
+},
+
 
     globalCacheKey(digits, apiDate) {
       return `${digits}__${apiDate}`;
@@ -853,12 +834,9 @@
       UI.showLoading(`🔍 Recherche du train ${digits}…`);
 
       // Today, yesterday, tomorrow
-      const now = new Date();
-      const days = [
-        new Date(now),                                    // Aujourd'hui
-        new Date(now.getTime() - 24 * 60 * 60 * 1000),   // Hier
-        new Date(now.getTime() + 24 * 60 * 60 * 1000)    // Demain
-      ];
+     // Aujourd'hui uniquement (beaucoup plus rapide)
+const days = [ new Date() ];
+      
 
       const candidates = this.buildVehicleIdCandidates(digits);
       let found = null;
