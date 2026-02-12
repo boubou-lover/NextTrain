@@ -85,12 +85,13 @@
       };
     },
 
-    normalize(str) {
-      return (str || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/\p{Diacritic}/gu, "");
-    },
+   normalize(str) {
+  return (str || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+},
+
 
     cacheKey(vehicleId, apiDate) {
       return `${vehicleId}__${apiDate}`;
