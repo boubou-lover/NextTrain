@@ -1,9 +1,9 @@
 /* ============================================================
-   NextTrain – app.js (Version stable + recherche Android + recherche train globale)
+   NextTrain – app.js (Version OPTIMISÉE - Recherche train corrigée)
    - Recherche gare : Enter / loupe Android / change (fallback)
    - Liste trains : affiche "Vers ..." / "Depuis ..."
-   - Recherche train globale : tape uniquement les chiffres (ex: 2120) puis Enter
-   - Clic sur une gare dans l’itinéraire => ouvre le liveboard de cette gare
+   - Recherche train globale : OPTIMISÉE pour performance et fiabilité
+   - Clic sur une gare dans l'itinéraire => ouvre le liveboard de cette gare
    ============================================================ */
 
 (function () {
@@ -13,14 +13,14 @@
     CACHE_TTL: 5 * 60 * 1000,
     AUTO_REFRESH: 60 * 1000,
     DEBOUNCE_DELAY: 150,
-    FETCH_TIMEOUT: 7000,
+    FETCH_TIMEOUT: 15000, // Augmenté à 15s
     OFFLINE_STATIONS_TTL: 7 * 24 * 60 * 60 * 1000,
     OFFLINE_LIVEBOARD_TTL: 10 * 60 * 1000,
 
-    // Global train search cache
+    // Global train search cache - OPTIMISÉ
     GLOBAL_SEARCH_CACHE_TTL: 30 * 60 * 1000,
-    GLOBAL_SEARCH_NEGATIVE_TTL: 2 * 60 * 1000,
-    GLOBAL_SEARCH_CONCURRENCY: 6
+    GLOBAL_SEARCH_NEGATIVE_TTL: 5 * 60 * 1000,
+    GLOBAL_SEARCH_CONCURRENCY: 4 // Réduit pour éviter de surcharger l'API
   };
 
   // ---------- ÉTAT GLOBAL ----------
@@ -200,6 +200,9 @@
         return await res.json();
       } catch (e) {
         clearTimeout(id);
+        if (e.name === 'AbortError') {
+          throw new Error(`Délai d'attente dépassé (${timeout/1000}s)`);
+        }
         throw e;
       }
     },
@@ -207,11 +210,12 @@
     async getAllStations() {
       try {
         const url = `${CONFIG.API_BASE}/stations/?format=json&lang=${Utils.lang()}`;
-        const data = await this.fetchWithTimeout(url, 10000);
+        const data = await this.fetchWithTimeout(url, 15000);
         const stations = data.station || [];
         Offline.saveStations(stations);
         return stations;
       } catch (e) {
+        console.warn("Erreur getAllStations:", e.message);
         const offline = Offline.loadStations();
         return offline || [];
       }
@@ -220,9 +224,10 @@
     async getDisturbances() {
       try {
         const url = `${CONFIG.API_BASE}/disturbances/?format=json&lang=${Utils.lang()}`;
-        const data = await this.fetchWithTimeout(url, 5000);
+        const data = await this.fetchWithTimeout(url, 8000);
         return data.disturbance || [];
-      } catch {
+      } catch (e) {
+        console.warn("Erreur getDisturbances:", e.message);
         return [];
       }
     },
@@ -231,19 +236,23 @@
       const arrdep = mode === "arrival" ? "ARR" : "DEP";
       const url = `${CONFIG.API_BASE}/liveboard/?station=${encodeURIComponent(station)}&arrdep=${arrdep}&lang=${Utils.lang()}&format=json`;
       try {
-        const data = await this.fetchWithTimeout(url);
+        const data = await this.fetchWithTimeout(url, 15000);
         Offline.saveLiveboard(station, mode, data);
         return data;
       } catch (e) {
+        console.warn("Erreur getStationBoard:", e.message);
         const offline = Offline.loadLiveboard(station, mode);
-        if (offline) return offline;
+        if (offline) {
+          console.log("Utilisation des données hors ligne");
+          return offline;
+        }
         throw e;
       }
     },
 
     async getVehicleOnly(vehicleId, apiDate) {
       const url = `${CONFIG.API_BASE}/vehicle/?id=${encodeURIComponent(vehicleId)}&format=json&lang=${Utils.lang()}&date=${apiDate}`;
-      return await this.fetchWithTimeout(url, 7000);
+      return await this.fetchWithTimeout(url, 10000);
     },
 
     async getVehicleDetails(vehicleId, apiDate) {
@@ -255,8 +264,8 @@
       const compUrl = `${CONFIG.API_BASE}/composition/?id=${encodeURIComponent(vehicleId)}&format=json&date=${apiDate}`;
 
       const [vehicle, composition] = await Promise.all([
-        this.fetchWithTimeout(vehicleUrl).catch(() => null),
-        this.fetchWithTimeout(compUrl).catch(() => null)
+        this.fetchWithTimeout(vehicleUrl, 15000).catch(() => null),
+        this.fetchWithTimeout(compUrl, 15000).catch(() => null)
       ]);
 
       const details = { vehicle, composition };
@@ -361,26 +370,31 @@
     },
 
     extractTrainNumber(train) {
-  // Source la plus fiable : train.vehicle (ex: "BE.NMBS.IC2120")
-  if (typeof train?.vehicle === "string") {
-    const id = train.vehicle.split(".").pop(); // IC2120
+      // 1️⃣ Source la plus fiable : vehicleinfo.category + number
+      const category = train?.vehicleinfo?.category;
+      const number = train?.vehicleinfo?.number;
 
-    const match = id.match(/^([A-Z]+)(\d+)$/);
-    if (match) {
-      const [, type, num] = match;
-      return `${type} ${num}`; // IC 2120
-    }
+      if (category && number) {
+        return `${category} ${number}`;
+      }
 
-    return id;
-  }
+      // 2️⃣ Fallback : parser train.vehicle
+      if (typeof train?.vehicle === "string") {
+        const raw = train.vehicle.split(".").pop(); // ex: THA2115
+        const match = raw.match(/^([A-Z]+)(\d+)$/);
+        if (!match) return raw;
 
-  // Fallback (au cas très rare où vehicle n'existe pas)
-  if (train?.vehicleinfo?.shortname) {
-    return String(train.vehicleinfo.shortname);
-  }
+        let [, type, num] = match;
 
-  return "—";
-},
+        // Normalisation minimale
+        if (type === "ICT") type = "IC";
+
+        return `${type} ${num}`;
+      }
+
+      // 3️⃣ Dernier recours
+      return train?.vehicleinfo?.shortname ?? "—";
+    },
 
     renderTrain(train) {
       const time = Utils.formatTime(train.time);
@@ -783,15 +797,35 @@
       }
     },
 
+    // ========== RECHERCHE GLOBALE OPTIMISÉE ==========
     buildVehicleIdCandidates(digits) {
-      const prefixes = ["IC", "L", "P", "S", "IR", "EC", "ICE", "TGV", "THA", "EUROSTAR", "EXT"];
-      const extra = ["ICT", "ICD", "R", "RE", "RB"];
-      const all = [...prefixes, ...extra];
-
-      const uniq = new Set();
-      all.forEach((p) => uniq.add(`BE.NMBS.${p}${digits}`));
-      all.forEach((p) => uniq.add(`${p}${digits}`));
-      return Array.from(uniq);
+      // Ordre de priorité basé sur la fréquence des trains en Belgique
+      // Format API iRail: BE.NMBS.{TYPE}{NUMBER}
+      return [
+        // 🔥 PRIORITÉ HAUTE - Trains nationaux les plus fréquents
+        `BE.NMBS.IC${digits}`,    // InterCity (le plus fréquent)
+        `BE.NMBS.L${digits}`,     // Local
+        `BE.NMBS.P${digits}`,     // Peak hour
+        `BE.NMBS.S${digits}`,     // S-train
+        
+        // 🟡 PRIORITÉ MOYENNE - Trains régionaux et internationaux
+        `BE.NMBS.IR${digits}`,    // InterRegio
+        `BE.NMBS.ICT${digits}`,   // IC court (parfois utilisé)
+        
+        // 🔵 PRIORITÉ BASSE - Trains internationaux
+        `BE.NMBS.THA${digits}`,   // Thalys
+        `BE.NMBS.EC${digits}`,    // EuroCity
+        `BE.NMBS.ICE${digits}`,   // ICE
+        `BE.NMBS.TGV${digits}`,   // TGV
+        `BE.NMBS.EUROSTAR${digits}`, // Eurostar
+        `BE.NMBS.EXT${digits}`,   // External
+        
+        // ⚠️ FALLBACKS - Formats courts (moins fiables mais parfois nécessaires)
+        `IC${digits}`,
+        `L${digits}`,
+        `P${digits}`,
+        `S${digits}`
+      ];
     },
 
     globalCacheKey(digits, apiDate) {
@@ -815,86 +849,137 @@
     },
 
     async searchTrainGlobal(digits) {
-      UI.showLoading(`Recherche du train ${digits}…`);
+      UI.showLoading(`🔍 Recherche du train ${digits}…`);
 
       // Today, yesterday, tomorrow
       const now = new Date();
       const days = [
-        new Date(now),
-        new Date(now.getTime() - 24 * 60 * 60 * 1000),
-        new Date(now.getTime() + 24 * 60 * 60 * 1000)
+        new Date(now),                                    // Aujourd'hui
+        new Date(now.getTime() - 24 * 60 * 60 * 1000),   // Hier
+        new Date(now.getTime() + 24 * 60 * 60 * 1000)    // Demain
       ];
 
       const candidates = this.buildVehicleIdCandidates(digits);
       let found = null;
 
-      // Helper: run tasks with limited concurrency
+      console.log(`[SEARCH] Recherche de ${digits} avec ${candidates.length} formats possibles`);
+
+      // Helper: sleep function
+      const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+      // Helper: run tasks with limited concurrency + early exit + delay between requests
       async function runWithConcurrency(items, limit, worker) {
-        const results = [];
         let idx = 0;
-        let stop = false;
+        let foundResult = null;
+        const running = new Set();
 
-        const runners = new Array(limit).fill(0).map(async () => {
-          while (!stop) {
+        async function runNext() {
+          while (idx < items.length && !foundResult) {
             const my = idx++;
-            if (my >= items.length) return;
-            try {
-              const r = await worker(items[my], my);
-              if (r) {
-                results.push(r);
-                stop = true;
-                return;
+            const item = items[my];
+            
+            // Petit délai entre les requêtes pour ne pas surcharger l'API
+            if (my > 0 && my % limit === 0) {
+              await sleep(100);
+            }
+            
+            const promise = (async () => {
+              try {
+                const result = await worker(item, my);
+                if (result && !foundResult) {
+                  foundResult = result;
+                  console.log(`[SEARCH] ✅ Trouvé: ${item}`);
+                }
+                return result;
+              } catch (e) {
+                console.log(`[SEARCH] ❌ Échec: ${item} (${e.message || 'erreur'})`);
+                return null;
+              } finally {
+                running.delete(promise);
               }
-            } catch {}
+            })();
+            
+            running.add(promise);
+            
+            // Limite de concurrence
+            if (running.size >= limit) {
+              await Promise.race([...running]);
+            }
           }
-        });
-
-        await Promise.all(runners);
-        return results[0] || null;
-      }
-
-      for (const day of days) {
-        const apiDate = Utils.toApiDate(day);
-
-        // Check cache first
-        const cacheKey = this.globalCacheKey(digits, apiDate);
-        const cached = this.getGlobalCache(cacheKey);
-        if (cached && cached.ok) {
-          found = cached.payload;
-          break;
-        } else if (cached && !cached.ok) {
-          continue;
         }
 
+        // Démarrer les workers
+        const workers = Array(Math.min(limit, items.length))
+          .fill(0)
+          .map(() => runNext());
+
+        await Promise.all(workers);
+        
+        // Attendre que tous les running se terminent
+        if (running.size > 0) {
+          await Promise.all([...running]);
+        }
+
+        return foundResult;
+      }
+
+      // Recherche par jour avec cache
+      for (const day of days) {
+        if (found) break;
+        
+        const apiDate = Utils.toApiDate(day);
+        const cacheKey = this.globalCacheKey(digits, apiDate);
+        
+        console.log(`[SEARCH] Vérification du ${Utils.toFRDate(day)}`);
+
+        // 1️⃣ Vérifier le cache
+        const cached = this.getGlobalCache(cacheKey);
+        if (cached) {
+          if (cached.ok) {
+            console.log(`[SEARCH] ✨ Cache HIT (positif) pour ${apiDate}`);
+            found = cached.payload;
+            break;
+          } else {
+            console.log(`[SEARCH] 💨 Cache HIT (négatif) pour ${apiDate} - skip`);
+            continue; // Résultat négatif en cache, passer au jour suivant
+          }
+        }
+
+        // 2️⃣ Rechercher dans l'API
+        console.log(`[SEARCH] 🔄 Cache MISS pour ${apiDate} - recherche API`);
+        
         const payload = await runWithConcurrency(
           candidates,
           CONFIG.GLOBAL_SEARCH_CONCURRENCY,
           async (vehicleId) => {
-            try {
-              const v = await API.getVehicleOnly(vehicleId, apiDate);
-              if (v && v.stops && v.stops.stop) {
-                return { vehicleId, apiDate };
-              }
-              return null;
-            } catch {
-              return null;
+            const v = await API.getVehicleOnly(vehicleId, apiDate);
+            if (v && v.stops && v.stops.stop) {
+              return { vehicleId, apiDate };
             }
+            return null;
           }
         );
 
+        // 3️⃣ Mettre en cache le résultat
         if (payload) {
           this.setGlobalCache(cacheKey, true, payload);
           found = payload;
+          console.log(`[SEARCH] 💾 Cache SAVE (positif) pour ${cacheKey}`);
           break;
         } else {
           this.setGlobalCache(cacheKey, false, null);
+          console.log(`[SEARCH] 💾 Cache SAVE (négatif) pour ${cacheKey}`);
         }
       }
 
+      // Affichage du résultat
       if (!found) {
+        console.log(`[SEARCH] ❌ Aucun résultat trouvé pour ${digits}`);
         UI.showError(`Aucun train trouvé avec le numéro <strong>${digits}</strong> (aujourd'hui/hier/demain).`);
         return;
       }
+
+      console.log(`[SEARCH] ✅ Train trouvé: ${found.vehicleId} le ${found.apiDate}`);
 
       const details = await API.getVehicleDetails(found.vehicleId, found.apiDate);
       const label = found.vehicleId.split(".").pop() || found.vehicleId;
@@ -911,7 +996,7 @@
 
       DOM.trainsList.innerHTML = `
         <div class="banner" style="margin-bottom:10px">
-          <strong>🔎 Résultat</strong><br>
+          <strong>🔎 Résultat de recherche</strong><br>
           Train <strong>${digits}</strong> — ${label}<br>
           <span style="font-size:12px;color:#64748b">Date: ${displayDate}</span>
         </div>
