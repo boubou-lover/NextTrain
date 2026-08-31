@@ -40,12 +40,18 @@ self.addEventListener('activate', event => {
   });
 });
 
-// FETCH — stratégie network-first (update JS instantané)
+// FETCH — stratégie network-first, uniquement pour l'app shell (même origine).
+// Les appels vers l'API iRail (api.irail.be) ne passent PAS par le cache du SW :
+// l'app gère déjà son propre fallback hors-ligne pour ces données (voir Offline.* dans app.js).
 self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin || event.request.method !== 'GET') {
+    return; // laisse passer tel quel (réseau normal)
+  }
+
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // Met à jour le cache avec la dernière version
         const clone = response.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         return response;

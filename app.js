@@ -92,6 +92,17 @@
     .replace(/[\u0300-\u036f]/g, "");
 },
 
+    // Échappement HTML - évite l'injection de balises via des données API/utilisateur
+    escapeHtml(str) {
+      return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[c]));
+    },
+
 
     cacheKey(vehicleId, apiDate) {
       return `${vehicleId}__${apiDate}`;
@@ -324,7 +335,7 @@
         select.innerHTML = `<option disabled>❌ Aucune gare trouvée</option>`;
       } else {
         select.innerHTML = stations
-          .map((s) => `<option value="${s.standardname}" ${s.standardname === state.station ? "selected" : ""}>${s.standardname}</option>`)
+          .map((s) => `<option value="${Utils.escapeHtml(s.standardname)}" ${s.standardname === state.station ? "selected" : ""}>${Utils.escapeHtml(s.standardname)}</option>`)
           .join("");
         if (stations.length === 60) select.innerHTML += `<option disabled>… (limité à 60)</option>`;
       }
@@ -412,11 +423,11 @@
       const occupancy = UI.renderOccupancy(train.occupancy);
 
       return `
-        <div class="train ${cancelled ? "cancelled" : ""}" data-vehicle="${train.vehicle}" data-datestr="${apiDate}">
+        <div class="train ${cancelled ? "cancelled" : ""}" data-vehicle="${Utils.escapeHtml(train.vehicle)}" data-datestr="${apiDate}">
           <div class="left">
-            <div class="train-number">${number} ${occupancy}</div>
-            <div class="route">${routeText}</div>
-            <div class="platform">Voie: ${platform}</div>
+            <div class="train-number">${Utils.escapeHtml(number)} ${occupancy}</div>
+            <div class="route">${Utils.escapeHtml(routeText)}</div>
+            <div class="platform">Voie: ${Utils.escapeHtml(platform)}</div>
           </div>
           <div style="text-align:right">
             <div class="time">${time}</div>
@@ -437,7 +448,7 @@
       return `
         <div class="banner">
           <strong>⚠️ Perturbations</strong>
-          <div style="margin-top:6px">${rel.map((d) => d.title).join("<br>")}</div>
+          <div style="margin-top:6px">${rel.map((d) => Utils.escapeHtml(d.title)).join("<br>")}</div>
         </div>
       `;
     },
@@ -470,7 +481,7 @@
           const delay = parseInt(stop.delay || 0, 10);
           const delayMin = Math.floor(delay / 60);
           const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : "";
-          const platform = stop.platform ? ` <span class="stop-platform">Voie ${stop.platform}</span>` : "";
+          const platform = stop.platform ? ` <span class="stop-platform">Voie ${Utils.escapeHtml(stop.platform)}</span>` : "";
 
           let badge = "";
           if (!isCanceled && isTrainHere) badge = ` <span class="train-here">Train ici</span>`;
@@ -480,7 +491,7 @@
               <div class="metro-dot">${isTrainHere ? "🚂" : ""}</div>
               <div class="metro-info">
                 <div class="metro-station">
-                  <a href="#" class="goto-station" data-station="${stop.station}">${stop.station}</a>
+                  <a href="#" class="goto-station" data-station="${Utils.escapeHtml(stop.station)}">${Utils.escapeHtml(stop.station)}</a>
                   ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ""}${badge}${platform}
                 </div>
                 <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
@@ -553,13 +564,11 @@
       const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
       if (!list.length) {
         const modeText = state.mode === "departure" ? "départ" : "arrivée";
-        container.innerHTML += `<div class="info">Aucun ${modeText} prévu pour la gare de ${state.station}.</div>`;
+        container.innerHTML += `<div class="info">Aucun ${modeText} prévu pour la gare de ${Utils.escapeHtml(state.station)}.</div>`;
         return;
       }
 
-      list.forEach((t) => {
-        container.innerHTML += UI.renderTrain(t);
-      });
+      container.innerHTML += list.map((t) => UI.renderTrain(t)).join("");
     }
   };
 
@@ -800,12 +809,17 @@
 
     // ========== RECHERCHE GLOBALE OPTIMISÉE ==========
     buildVehicleIdCandidates(digits) {
-  // Version ultra rapide
+  // Préfixes de série SNCB couverts (IC/IR/L/P/S/ICT/THA/EUR/EXT)
   return [
     `BE.NMBS.IC${digits}`,
+    `BE.NMBS.IR${digits}`,
     `BE.NMBS.L${digits}`,
     `BE.NMBS.P${digits}`,
-    `BE.NMBS.S${digits}`
+    `BE.NMBS.S${digits}`,
+    `BE.NMBS.ICT${digits}`,
+    `BE.NMBS.THA${digits}`,
+    `BE.NMBS.EUR${digits}`,
+    `BE.NMBS.EXT${digits}`
   ];
 },
 
@@ -833,9 +847,8 @@
     async searchTrainGlobal(digits) {
       UI.showLoading(`🔍 Recherche du train ${digits}…`);
 
-      // Today, yesterday, tomorrow
-     // Aujourd'hui uniquement (beaucoup plus rapide)
-const days = [ new Date() ];
+      // Aujourd'hui uniquement (beaucoup plus rapide qu'une recherche multi-jours)
+      const days = [ new Date() ];
       
 
       const candidates = this.buildVehicleIdCandidates(digits);
@@ -954,7 +967,7 @@ const days = [ new Date() ];
       // Affichage du résultat
       if (!found) {
         console.log(`[SEARCH] ❌ Aucun résultat trouvé pour ${digits}`);
-        UI.showError(`Aucun train trouvé avec le numéro <strong>${digits}</strong> (aujourd'hui/hier/demain).`);
+        UI.showError(`Aucun train trouvé avec le numéro <strong>${Utils.escapeHtml(digits)}</strong> pour aujourd'hui.`);
         return;
       }
 
@@ -976,13 +989,13 @@ const days = [ new Date() ];
       DOM.trainsList.innerHTML = `
         <div class="banner" style="margin-bottom:10px">
           <strong>🔎 Résultat de recherche</strong><br>
-          Train <strong>${digits}</strong> — ${label}<br>
+          Train <strong>${Utils.escapeHtml(digits)}</strong> — ${Utils.escapeHtml(label)}<br>
           <span style="font-size:12px;color:#64748b">Date: ${displayDate}</span>
         </div>
 
-        <div class="train expanded" data-vehicle="${found.vehicleId}" data-datestr="${found.apiDate}">
+        <div class="train expanded" data-vehicle="${Utils.escapeHtml(found.vehicleId)}" data-datestr="${found.apiDate}">
           <div class="left">
-            <div class="train-number">${label}</div>
+            <div class="train-number">${Utils.escapeHtml(label)}</div>
             <div class="route">Recherche globale</div>
             <div class="platform">—</div>
           </div>
@@ -1027,8 +1040,8 @@ const days = [ new Date() ];
       } catch (e) {
         console.error("Erreur init:", e);
         const msg = (e.message || "").includes("HTTP 404")
-          ? `Impossible de trouver la gare <strong>${state.station}</strong>.`
-          : `Impossible de charger les horaires. (${e.message || "Erreur inconnue"})`;
+          ? `Impossible de trouver la gare <strong>${Utils.escapeHtml(state.station)}</strong>.`
+          : `Impossible de charger les horaires. (${Utils.escapeHtml(e.message || "Erreur inconnue")})`;
         UI.showError(msg);
       } finally {
         state.isFetching = false;

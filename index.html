@@ -12,6 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="NextTrain">
   <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" href="icon-192.png">
   
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -54,5 +55,27 @@
   </div>
 
   <script src="app.js"></script>
+  <script>
+    // Enregistrement du Service Worker (PWA installable + support hors-ligne)
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        const hadController = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.register("service-worker.js").then((reg) => {
+          reg.addEventListener("updatefound", () => {
+            const newWorker = reg.installing;
+            newWorker?.addEventListener("statechange", () => {
+              // Ne recharger que s'il s'agit d'une VRAIE mise à jour
+              // (un SW contrôlait déjà la page), pas de la toute première installation.
+              if (newWorker.state === "activated" && hadController) {
+                window.location.reload();
+              }
+            });
+          });
+        }).catch((err) => {
+          console.warn("Échec de l'enregistrement du Service Worker:", err);
+        });
+      });
+    }
+  </script>
 </body>
 </html>
