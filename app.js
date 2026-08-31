@@ -31,6 +31,7 @@
     allStationsNormalized: [],
     disturbances: [],
     expandedVehicle: null,
+    expandedApiDate: null,
     trainDetailsCache: {},
     autoRefreshHandle: null,
     isFetching: false,
@@ -569,6 +570,43 @@
       }
 
       container.innerHTML += list.map((t) => UI.renderTrain(t)).join("");
+
+      await UI.restoreExpandedState();
+    },
+
+    // Ré-ouvre automatiquement la fiche du train qui était consultée avant un refresh
+    // (auto-refresh, changement de gare via clic sur un arrêt, etc.)
+    async restoreExpandedState() {
+      const vehicleId = state.expandedVehicle;
+      const apiDate = state.expandedApiDate;
+      if (!vehicleId || !apiDate) return;
+
+      const trainEl = DOM.trainsList
+        ? Array.from(DOM.trainsList.querySelectorAll(".train")).find(
+            (el) => el.dataset.vehicle === vehicleId && el.dataset.datestr === apiDate
+          )
+        : null;
+      if (!trainEl) return; // le train n'est plus dans la liste courante (parti/pas encore listé)
+
+      trainEl.classList.add("expanded");
+      const detailsEl = trainEl.nextElementSibling;
+      if (!detailsEl) return;
+
+      // Sert d'abord depuis le cache pour éviter tout flash de chargement à chaque refresh
+      const cached = Cache.get(Utils.cacheKey(vehicleId, apiDate));
+      if (cached) {
+        detailsEl.innerHTML = UI.renderTrainDetails(cached, state.station);
+        return;
+      }
+
+      detailsEl.innerHTML = `
+        <div class="loading">
+          <div class="spinner small"></div>
+          Chargement des détails...
+        </div>
+      `;
+      const details = await API.getVehicleDetails(vehicleId, apiDate);
+      detailsEl.innerHTML = UI.renderTrainDetails(details, state.station);
     }
   };
 
@@ -605,11 +643,13 @@
 
       if (isExpanded) {
         state.expandedVehicle = null;
+        state.expandedApiDate = null;
         return;
       }
 
       trainEl.classList.add("expanded");
       state.expandedVehicle = vehicleId;
+      state.expandedApiDate = apiDate;
 
       if (detailsEl) {
         detailsEl.innerHTML = `
@@ -641,6 +681,8 @@
       if (!opt || opt.disabled) return;
 
       state.station = opt.value;
+      state.expandedVehicle = null;
+      state.expandedApiDate = null;
       App.saveState();
 
       if (DOM.stationSearch) DOM.stationSearch.value = "";
@@ -652,6 +694,8 @@
       const value = e.target.value;
       if (!value) return;
       state.station = value;
+      state.expandedVehicle = null;
+      state.expandedApiDate = null;
       App.saveState();
       if (DOM.stationSearch) DOM.stationSearch.value = "";
       if (DOM.stationSelect) DOM.stationSelect.style.display = "none";
@@ -660,6 +704,8 @@
 
     handleModeChange(mode) {
       state.mode = mode;
+      state.expandedVehicle = null;
+      state.expandedApiDate = null;
       App.saveState();
       App.init(true);
     },
@@ -725,6 +771,8 @@
         }
 
         state.station = nearest.standardname;
+        state.expandedVehicle = null;
+        state.expandedApiDate = null;
         App.saveState();
         await App.init(true);
 
@@ -985,6 +1033,9 @@
       })();
 
       if (!DOM.trainsList) return;
+
+      state.expandedVehicle = found.vehicleId;
+      state.expandedApiDate = found.apiDate;
 
       DOM.trainsList.innerHTML = `
         <div class="banner" style="margin-bottom:10px">
