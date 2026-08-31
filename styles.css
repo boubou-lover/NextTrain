@@ -317,6 +317,46 @@ button[disabled], .btn[disabled]{
   box-shadow:none;
 }
 
+/* Indicateur "train en transit entre deux gares" */
+.metro-transit{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-left:11px;
+  padding:8px 0 8px 21px;
+  position:relative;
+}
+
+.metro-transit-icon{
+  font-size:15px;
+  animation:trainMove 1.4s ease-in-out infinite;
+}
+
+@keyframes trainMove{
+  0%, 100%{ transform:translateX(0); }
+  50%{ transform:translateX(4px); }
+}
+
+.metro-transit-text{
+  font-size:12px;
+  font-weight:600;
+  color:#3b82f6;
+  background:#eff6ff;
+  padding:4px 10px;
+  border-radius:8px;
+  border:1px dashed #93c5fd;
+}
+
+.next-stop-badge{
+  background:#dbeafe;
+  color:#1e40af;
+  padding:2px 6px;
+  border-radius:4px;
+  font-size:11px;
+  font-weight:700;
+  margin-left:6px;
+}
+
 .train-here{
   background:#d1fae5;
   color:#065f46;

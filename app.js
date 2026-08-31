@@ -463,21 +463,41 @@
       if (stopsData) {
         const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
         const now = Utils.nowSeconds();
+        const lastIdx = stops.length - 1;
 
-        let lastPassedIndex = -1;
-        stops.forEach((stop, i) => {
-          const t = parseInt(stop.time, 10);
-          const d = parseInt(stop.delay || 0, 10);
-          if (t + d <= now) lastPassedIndex = i;
-        });
+        // Détermine si le train a quitté un arrêt donné.
+        // On utilise le champ temps réel "left" fourni par iRail quand il existe
+        // (bien plus fiable qu'un simple calcul horaire), avec repli sur heure+retard
+        // si l'API ne le fournit pas. Pour le terminus (qui n'a pas de "left"),
+        // on se base sur l'heure d'arrivée prévue + retard.
+        const hasLeftStop = (stop, i) => {
+          const scheduledPlusDelay = parseInt(stop.time, 10) + parseInt(stop.delay || 0, 10);
+          if (i === lastIdx) return scheduledPlusDelay <= now;
+          if (stop.left === "1" || stop.left === 1 || stop.left === true) return true;
+          if (stop.left === "0" || stop.left === 0 || stop.left === false) return false;
+          return scheduledPlusDelay <= now; // champ "left" absent → repli horaire
+        };
+
+        let lastLeftIndex = -1;
+        stops.forEach((stop, i) => { if (hasLeftStop(stop, i)) lastLeftIndex = i; });
+
+        const arrivedAtTerminus = lastLeftIndex === lastIdx;
+        const waitingAtOrigin = lastLeftIndex === -1;
+        // Index de l'arrêt que le train vient de quitter, s'il est en route vers le suivant
+        const inTransitAfterIndex = (!arrivedAtTerminus && !waitingAtOrigin) ? lastLeftIndex : -1;
 
         html += `<h4>Itinéraire</h4><div class="metro-line">`;
 
         stops.forEach((stop, i) => {
-          const isCurrent = Utils.normalize(stop.station) === Utils.normalize(currentStation);
-          const isTrainHere = i === lastPassedIndex;
-          const isPassed = i < lastPassedIndex;
+          const isCurrentStation = Utils.normalize(stop.station) === Utils.normalize(currentStation);
+          // "Passé" = arrêt déjà quitté par le train (hors terminus, géré séparément ci-dessous)
+          const isPassed = i <= lastLeftIndex && i !== lastIdx;
           const isCanceled = stop.canceled === "1" || stop.canceled === 1;
+
+          const isWaitingHere = waitingAtOrigin && i === 0;
+          const isArrivedHere = arrivedAtTerminus && i === lastIdx;
+          const isNextStop = inTransitAfterIndex >= 0 && i === inTransitAfterIndex + 1;
+          const isTrainPosition = isWaitingHere || isArrivedHere;
 
           const delay = parseInt(stop.delay || 0, 10);
           const delayMin = Math.floor(delay / 60);
@@ -485,11 +505,13 @@
           const platform = stop.platform ? ` <span class="stop-platform">Voie ${Utils.escapeHtml(stop.platform)}</span>` : "";
 
           let badge = "";
-          if (!isCanceled && isTrainHere) badge = ` <span class="train-here">Train ici</span>`;
+          if (!isCanceled && isWaitingHere) badge += ` <span class="train-here">🚉 En gare</span>`;
+          if (!isCanceled && isArrivedHere) badge += ` <span class="train-here">✅ Arrivé</span>`;
+          if (!isCanceled && isNextStop) badge += ` <span class="next-stop-badge">Prochain arrêt</span>`;
 
           html += `
-            <div class="metro-stop ${isCurrent ? "current" : ""} ${isTrainHere ? "train-position" : ""} ${isPassed ? "passed" : ""} ${isCanceled ? "canceled" : ""}">
-              <div class="metro-dot">${isTrainHere ? "🚂" : ""}</div>
+            <div class="metro-stop ${i === 0 ? "first" : ""} ${i === lastIdx ? "last" : ""} ${isCurrentStation ? "current" : ""} ${isTrainPosition ? "train-position" : ""} ${isPassed ? "passed" : ""} ${isCanceled ? "canceled" : ""} ${isNextStop ? "next-stop" : ""}">
+              <div class="metro-dot">${isTrainPosition ? "🚂" : ""}</div>
               <div class="metro-info">
                 <div class="metro-station">
                   <a href="#" class="goto-station" data-station="${Utils.escapeHtml(stop.station)}">${Utils.escapeHtml(stop.station)}</a>
@@ -499,6 +521,17 @@
               </div>
             </div>
           `;
+
+          // Le train est entre deux gares : on l'affiche sur la ligne, entre les deux arrêts,
+          // plutôt que de le "coller" artificiellement à la gare qu'il vient de quitter.
+          if (!isCanceled && inTransitAfterIndex === i && stops[i + 1]) {
+            html += `
+              <div class="metro-transit">
+                <div class="metro-transit-icon">🚂</div>
+                <div class="metro-transit-text">En route vers <strong>${Utils.escapeHtml(stops[i + 1].station)}</strong></div>
+              </div>
+            `;
+          }
         });
 
         html += `</div>`;
