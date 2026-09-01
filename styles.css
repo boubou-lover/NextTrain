@@ -446,6 +446,60 @@ button[disabled], .btn[disabled]{
 .spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(2,6,23,0.06);border-top-color:#3b5db0;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* ---------- Perturbations : détail par perturbation ---------- */
+.disturbance-item{
+  padding:8px 0;
+  border-top:1px solid rgba(138,109,30,0.12);
+}
+.disturbance-item:first-child{
+  border-top:none;
+  padding-top:0;
+}
+.disturbance-badge{
+  display:inline-block;
+  font-size:11px;
+  font-weight:600;
+  padding:2px 8px;
+  border-radius:6px;
+  background:#fdecc8;
+  color:#8a6d1e;
+  margin-bottom:4px;
+}
+.disturbance-item.planned .disturbance-badge{
+  background:#e6f7ee;
+  color:#166534;
+}
+.disturbance-title{
+  font-size:13px;
+  line-height:1.4;
+}
+.disturbance-link{
+  display:inline-block;
+  font-size:12px;
+  font-weight:600;
+  color:#8a6d1e;
+  margin-top:4px;
+  text-decoration:underline;
+}
+.disturbance-fallback{
+  cursor:default;
+}
+.disturbance-fallback summary{
+  cursor:pointer;
+  font-weight:600;
+  font-size:13px;
+  list-style:none;
+}
+.disturbance-fallback summary::-webkit-details-marker{
+  display:none;
+}
+.disturbance-fallback summary::before{
+  content:'▸ ';
+}
+.disturbance-fallback[open] summary::before{
+  content:'▾ ';
+}
+
 /* ---------- Footer ---------- */
 footer{margin-top:12px;color:#94a3b8;text-align:center;font-size:13px}
 

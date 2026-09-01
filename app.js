@@ -121,6 +121,32 @@
     .replace(/[\u0300-\u036f]/g, "");
 },
 
+    // Découpe un nom de gare en mots significatifs pour un matching plus robuste
+    // que la simple recherche de sous-chaîne (ex: "Bruxelles-Midi" → ["bruxelles","midi"]).
+    // Les mots de moins de 3 lettres sont ignorés (de, la, du...).
+    stationNameParts(station) {
+      return Utils.normalize(station)
+        .split(/[\s\-/']+/)
+        .filter((w) => w.length >= 3);
+    },
+
+    // Vrai si un mot apparaît dans le texte avec des frontières de mot
+    // (évite qu'un nom court ne matche à l'intérieur d'un mot plus long sans rapport).
+    containsWord(normalizedText, word) {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(normalizedText);
+    },
+
+    // N'autorise que http(s) pour éviter tout lien javascript:/data: dans un attribut href
+    isSafeHttpUrl(url) {
+      try {
+        const u = new URL(url);
+        return u.protocol === "http:" || u.protocol === "https:";
+      } catch {
+        return false;
+      }
+    },
+
     // Échappement HTML - évite l'injection de balises via des données API/utilisateur
     escapeHtml(str) {
       return String(str ?? "").replace(/[&<>"']/g, (c) => ({
@@ -517,16 +543,57 @@
     },
 
     renderDisturbanceBanner() {
-      const rel = (state.disturbances || [])
-        .filter((d) => `${d.title || ""} ${d.description || ""}`.toLowerCase().includes((state.station || "").toLowerCase()))
-        .slice(0, 3);
+      const all = state.disturbances || [];
+      if (!all.length) return "";
 
-      if (!rel.length) return "";
+      // Matching robuste : tous les mots significatifs du nom de gare doivent apparaître,
+      // en tant que mots entiers (pas de sous-chaîne partielle), dans le titre+description.
+      const parts = Utils.stationNameParts(state.station);
+      const matches = (d) => {
+        if (!parts.length) return false;
+        const text = Utils.normalize(`${d.title || ""} ${d.description || ""}`);
+        return parts.every((p) => Utils.containsWord(text, p));
+      };
+
+      const byRecency = (a, b) => (parseInt(b.timestamp || 0, 10) - parseInt(a.timestamp || 0, 10));
+
+      const rel = all.filter(matches).sort(byRecency).slice(0, 3);
+
+      const renderItem = (d) => {
+        const isPlanned = (d.type || "").toLowerCase() === "planned";
+        const icon = isPlanned ? "🚧" : "⚠️";
+        const label = isPlanned ? "Travaux prévus" : "Perturbation";
+        const link = d.link && Utils.isSafeHttpUrl(d.link)
+          ? ` <a href="${Utils.escapeHtml(d.link)}" target="_blank" rel="noopener noreferrer" class="disturbance-link">Plus d'infos →</a>`
+          : "";
+        return `
+          <div class="disturbance-item ${isPlanned ? "planned" : ""}">
+            <span class="disturbance-badge">${icon} ${label}</span>
+            <div class="disturbance-title">${Utils.escapeHtml(d.title)}</div>
+            ${link}
+          </div>
+        `;
+      };
+
+      if (rel.length) {
+        return `
+          <div class="banner">
+            <strong>⚠️ Perturbations — ${Utils.escapeHtml(state.station)}</strong>
+            <div style="margin-top:8px">${rel.map(renderItem).join("")}</div>
+          </div>
+        `;
+      }
+
+      // Aucune perturbation ne mentionne explicitement cette gare : on ne pollue pas
+      // l'écran avec des perturbations sans rapport, mais on les rend accessibles
+      // en un clic — utile car la NMBS utilise parfois des noms abrégés
+      // ("Brux.-Midi" au lieu de "Bruxelles-Midi") que le matching peut manquer.
+      const others = [...all].sort(byRecency).slice(0, 5);
       return `
-        <div class="banner">
-          <strong>⚠️ Perturbations</strong>
-          <div style="margin-top:6px">${rel.map((d) => Utils.escapeHtml(d.title)).join("<br>")}</div>
-        </div>
+        <details class="banner disturbance-fallback">
+          <summary>ℹ️ Aucune perturbation connue pour ${Utils.escapeHtml(state.station)} — voir les ${others.length} perturbations en cours en Belgique</summary>
+          <div style="margin-top:8px">${others.map(renderItem).join("")}</div>
+        </details>
       `;
     },
 
