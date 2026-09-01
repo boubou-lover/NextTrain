@@ -21,16 +21,19 @@
     <div class="card">
      <div class="title">
         <img src="icon-192.png" alt="Logo NextTrain" class="app-logo"> <h1>NextTrain</h1>
-        <div style="margin-left:auto; font-size:12px; opacity:.9">Version 1.2.1 — Optimized</div>
+        <div id="appVersion" style="margin-left:auto; font-size:12px; opacity:.9"></div>
       </div>
 
       <div class="station-row">
         <div class="station-name" id="stationName">📍 <span id="stationNameText">Libramont</span></div>
         <div class="controls">
+          <button id="favBtn" class="btn favBtn" title="Ajouter/retirer des favoris" aria-label="Ajouter ou retirer des favoris">☆</button>
           <button id="locateBtn" class="btn">📍 Localiser</button>
           <button id="refreshBtn" class="btn">🔄 Actualiser</button>
         </div>
       </div>
+
+      <div id="favoritesBar" class="favorites-bar" aria-label="Gares favorites"></div>
 
       <input id="stationSearch" class="search" placeholder="Rechercher une gare (ex: Namur, Bruxelles...)" aria-label="Recherche gare">
       <input id="trainSearch" class="search" placeholder="Rechercher un train (ex: 2112)" aria-label="Recherche train">

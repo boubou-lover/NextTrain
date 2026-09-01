@@ -1,5 +1,6 @@
 /* ============================================================
-   NextTrain – app.js (Version OPTIMISÉE - Recherche train corrigée)
+   NextTrain – app.js
+   (Numéro de version : voir version.json à la racine du projet)
    - Recherche gare : Enter / loupe Android / change (fallback)
    - Liste trains : affiche "Vers ..." / "Depuis ..."
    - Recherche train globale : OPTIMISÉE pour performance et fiabilité
@@ -169,7 +170,8 @@
     locateBtn: document.getElementById("locateBtn"),
     refreshBtn: document.getElementById("refreshBtn"),
     favBtn: document.getElementById("favBtn"),
-    favoritesBar: document.getElementById("favoritesBar")
+    favoritesBar: document.getElementById("favoritesBar"),
+    appVersion: document.getElementById("appVersion")
   };
 
   // ---------- CACHE mémoire (détails train) ----------
@@ -1266,8 +1268,24 @@
       }
     },
 
+    // Affiche le numéro de version depuis version.json (source unique de vérité,
+    // partagée avec le Service Worker pour le nom du cache — voir service-worker.js).
+    async loadVersion() {
+      if (!DOM.appVersion) return;
+      try {
+        const res = await fetch("version.json", { cache: "no-store" });
+        if (!res.ok) throw new Error("version.json indisponible");
+        const info = await res.json();
+        DOM.appVersion.textContent = `Version ${info.version}`;
+        DOM.appVersion.title = info.notes || "";
+      } catch {
+        DOM.appVersion.textContent = ""; // pas bloquant si le fichier manque
+      }
+    },
+
     async start() {
       this.setupListeners();
+      this.loadVersion();
       await this.init();
 
       // Ticker "dans X min" — mise à jour légère indépendante du refresh réseau
