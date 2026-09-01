@@ -12,6 +12,7 @@
     API_BASE: "https://api.irail.be",
     CACHE_TTL: 5 * 60 * 1000,
     AUTO_REFRESH: 60 * 1000,
+    RELATIVE_TIME_TICK: 15 * 1000, // rafraîchit "dans X min" sans re-fetcher les données
     DEBOUNCE_DELAY: 150,
     FETCH_TIMEOUT: 15000, // Augmenté à 15s
     OFFLINE_STATIONS_TTL: 7 * 24 * 60 * 60 * 1000,
@@ -27,6 +28,14 @@
   const state = {
     mode: localStorage.getItem("nt_mode") || "departure",
     station: localStorage.getItem("nt_station") || "Libramont",
+    favorites: (() => {
+      try {
+        const raw = JSON.parse(localStorage.getItem("nt_favorites") || "[]");
+        return Array.isArray(raw) ? raw : [];
+      } catch {
+        return [];
+      }
+    })(),
     allStations: [],
     allStationsNormalized: [],
     disturbances: [],
@@ -54,6 +63,24 @@
     formatTime(timestampSec) {
       const date = new Date(Number(timestampSec) * 1000);
       return date.toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" });
+    },
+
+    // Calcule "dans X min" à partir de l'heure réelle de passage (heure prévue + retard).
+    // Retourne { text, cls } pour l'affichage ET pour la mise à jour "live" périodique.
+    formatRelative(realTimestampSec) {
+      const now = Utils.nowSeconds();
+      const diff = Number(realTimestampSec) - now;
+
+      if (diff <= -30) return { text: "Parti", cls: "relative-past" };
+      if (diff < 60) return { text: "Imminent", cls: "relative-now" };
+
+      const mins = Math.round(diff / 60);
+      if (mins < 60) return { text: `dans ${mins} min`, cls: mins <= 3 ? "relative-soon" : "relative-normal" };
+
+      const hours = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      const hoursText = remMins > 0 ? `dans ${hours}h${String(remMins).padStart(2, "0")}` : `dans ${hours}h`;
+      return { text: hoursText, cls: "relative-normal" };
     },
 
     // ddmmyy (API iRail)
@@ -140,7 +167,9 @@
     tabArrival: document.getElementById("tabArrival"),
     trainsList: document.getElementById("trainsList"),
     locateBtn: document.getElementById("locateBtn"),
-    refreshBtn: document.getElementById("refreshBtn")
+    refreshBtn: document.getElementById("refreshBtn"),
+    favBtn: document.getElementById("favBtn"),
+    favoritesBar: document.getElementById("favoritesBar")
   };
 
   // ---------- CACHE mémoire (détails train) ----------
@@ -293,6 +322,44 @@
       if (DOM.stationNameText) DOM.stationNameText.textContent = state.station;
       if (DOM.tabDeparture) DOM.tabDeparture.classList.toggle("active", state.mode === "departure");
       if (DOM.tabArrival) DOM.tabArrival.classList.toggle("active", state.mode === "arrival");
+
+      if (DOM.favBtn) {
+        const isFav = App.isFavorite(state.station);
+        DOM.favBtn.classList.toggle("active", isFav);
+        DOM.favBtn.textContent = isFav ? "★" : "☆";
+        DOM.favBtn.title = isFav ? "Retirer des favoris" : "Ajouter aux favoris";
+      }
+    },
+
+    // Met à jour les compteurs "dans X min" affichés à l'écran, sans recharger les données.
+    // Appelé toutes les CONFIG.RELATIVE_TIME_TICK ms tant que la page est visible.
+    tickRelativeTimes() {
+      document.querySelectorAll(".relative-time[data-realtime]").forEach((el) => {
+        const real = Number(el.dataset.realtime);
+        if (!real) return;
+        const { text, cls } = Utils.formatRelative(real);
+        el.textContent = text;
+        el.className = `relative-time ${cls}`;
+      });
+    },
+
+    renderFavorites() {
+      if (!DOM.favoritesBar) return;
+      if (!state.favorites.length) {
+        DOM.favoritesBar.innerHTML = "";
+        return;
+      }
+      DOM.favoritesBar.innerHTML = state.favorites
+        .map((f) => {
+          const isActive = Utils.normalize(f) === Utils.normalize(state.station);
+          return `
+            <span class="fav-chip ${isActive ? "active-station" : ""}" data-station="${Utils.escapeHtml(f)}">
+              <span class="fav-goto">⭐ ${Utils.escapeHtml(f)}</span>
+              <span class="fav-remove" data-remove-fav="${Utils.escapeHtml(f)}" title="Retirer des favoris">✕</span>
+            </span>
+          `;
+        })
+        .join("");
     },
 
     showLoading(label = "Chargement des horaires…") {
@@ -423,6 +490,12 @@
       const cancelled = train.canceled === "1" || train.canceled === 1 || train.canceled === true;
       const occupancy = UI.renderOccupancy(train.occupancy);
 
+      const realTimestamp = Number(train.time) + delaySec;
+      const relative = Utils.formatRelative(realTimestamp);
+      const relativeHtml = cancelled
+        ? ""
+        : `<span class="relative-time ${relative.cls}" data-realtime="${realTimestamp}">${relative.text}</span>`;
+
       return `
         <div class="train ${cancelled ? "cancelled" : ""}" data-vehicle="${Utils.escapeHtml(train.vehicle)}" data-datestr="${apiDate}">
           <div class="left">
@@ -432,6 +505,7 @@
           </div>
           <div style="text-align:right">
             <div class="time">${time}</div>
+            ${relativeHtml}
             <div class="date">${displayDate}</div>
             ${delayText}
           </div>
@@ -822,6 +896,31 @@
           DOM.locateBtn.textContent = "📍 Localiser";
         }
       }
+    },
+
+    handleFavToggle() {
+      App.toggleFavorite(state.station);
+    },
+
+    async handleFavoritesBarClick(event) {
+      const removeBtn = event.target.closest("[data-remove-fav]");
+      if (removeBtn) {
+        event.stopPropagation();
+        App.removeFavorite(removeBtn.dataset.removeFav);
+        return;
+      }
+
+      const chip = event.target.closest(".fav-chip");
+      if (!chip) return;
+      const stationName = chip.dataset.station;
+      if (!stationName || stationName === state.station) return;
+
+      state.station = stationName;
+      state.expandedVehicle = null;
+      state.expandedApiDate = null;
+      App.saveState();
+      await App.init(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -830,6 +929,36 @@
     saveState() {
       localStorage.setItem("nt_mode", state.mode);
       localStorage.setItem("nt_station", state.station);
+    },
+
+    isFavorite(station) {
+      const n = Utils.normalize(station);
+      return state.favorites.some((f) => Utils.normalize(f) === n);
+    },
+
+    saveFavorites() {
+      try {
+        localStorage.setItem("nt_favorites", JSON.stringify(state.favorites));
+      } catch {}
+    },
+
+    toggleFavorite(station) {
+      if (!station) return;
+      if (this.isFavorite(station)) {
+        state.favorites = state.favorites.filter((f) => Utils.normalize(f) !== Utils.normalize(station));
+      } else {
+        state.favorites = [...state.favorites, station];
+      }
+      this.saveFavorites();
+      UI.updateHeader();
+      UI.renderFavorites();
+    },
+
+    removeFavorite(station) {
+      state.favorites = state.favorites.filter((f) => Utils.normalize(f) !== Utils.normalize(station));
+      this.saveFavorites();
+      UI.updateHeader();
+      UI.renderFavorites();
     },
 
     setupListeners() {
@@ -873,6 +1002,10 @@
 
       // Locate
       if (DOM.locateBtn) DOM.locateBtn.addEventListener("click", Events.handleLocate);
+
+      // Favoris
+      if (DOM.favBtn) DOM.favBtn.addEventListener("click", Events.handleFavToggle);
+      if (DOM.favoritesBar) DOM.favoritesBar.addEventListener("click", Events.handleFavoritesBarClick);
 
       // Close select when click outside
       document.addEventListener("click", Events.handleDocumentClick);
@@ -1100,6 +1233,7 @@
       state.isFetching = true;
 
       UI.updateHeader();
+      UI.renderFavorites();
       UI.showLoading();
 
       if (DOM.trainSearch) DOM.trainSearch.value = "";
@@ -1135,6 +1269,9 @@
     async start() {
       this.setupListeners();
       await this.init();
+
+      // Ticker "dans X min" — mise à jour légère indépendante du refresh réseau
+      setInterval(() => UI.tickRelativeTimes(), CONFIG.RELATIVE_TIME_TICK);
     }
   };
 
