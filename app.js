@@ -53,8 +53,27 @@
   // ---------- UTILITAIRES ----------
   const Utils = {
     lang() {
-      const nav = navigator.language || "fr-BE";
-      return nav.startsWith("fr") ? "fr" : "en";
+      // Forcé en français : l'API iRail renvoie parfois les noms de gares
+      // transfrontalières dans la langue du pays voisin (ex: "Lëtzebuerg" pour
+      // Luxembourg) si on suit la langue du navigateur. On demande donc
+      // toujours le français, quel que soit navigator.language.
+      return "fr";
+    },
+
+    // Corrige les noms de gares transfrontalières que l'API iRail renvoie
+    // parfois dans une autre langue que le français, même avec lang=fr
+    // (données sourcées directement du réseau ferroviaire voisin).
+    // N'affecte que l'affichage : la valeur technique utilisée pour
+    // interroger l'API reste inchangée.
+    STATION_NAME_OVERRIDES: {
+      "letzebuerg": "Luxembourg"
+      // Ajouter ici toute autre gare mal traduite, ex: "aachen": "Aix-la-Chapelle"
+    },
+
+    displayStationName(name) {
+      if (!name) return name;
+      const key = Utils.normalize(name);
+      return Utils.STATION_NAME_OVERRIDES[key] || name;
     },
 
     nowSeconds() {
@@ -347,7 +366,7 @@
   // ---------- UI ----------
   const UI = {
     updateHeader() {
-      if (DOM.stationNameText) DOM.stationNameText.textContent = state.station;
+      if (DOM.stationNameText) DOM.stationNameText.textContent = Utils.displayStationName(state.station);
       if (DOM.tabDeparture) DOM.tabDeparture.classList.toggle("active", state.mode === "departure");
       if (DOM.tabArrival) DOM.tabArrival.classList.toggle("active", state.mode === "arrival");
 
@@ -382,7 +401,7 @@
           const isActive = Utils.normalize(f) === Utils.normalize(state.station);
           return `
             <span class="fav-chip ${isActive ? "active-station" : ""}" data-station="${Utils.escapeHtml(f)}">
-              <span class="fav-goto">⭐ ${Utils.escapeHtml(f)}</span>
+              <span class="fav-goto">⭐ ${Utils.escapeHtml(Utils.displayStationName(f))}</span>
               <span class="fav-remove" data-remove-fav="${Utils.escapeHtml(f)}" title="Retirer des favoris">✕</span>
             </span>
           `;
@@ -431,7 +450,7 @@
         select.innerHTML = `<option disabled>❌ Aucune gare trouvée</option>`;
       } else {
         select.innerHTML = stations
-          .map((s) => `<option value="${Utils.escapeHtml(s.standardname)}" ${s.standardname === state.station ? "selected" : ""}>${Utils.escapeHtml(s.standardname)}</option>`)
+          .map((s) => `<option value="${Utils.escapeHtml(s.standardname)}" ${s.standardname === state.station ? "selected" : ""}>${Utils.escapeHtml(Utils.displayStationName(s.standardname))}</option>`)
           .join("");
         if (stations.length === 60) select.innerHTML += `<option disabled>… (limité à 60)</option>`;
       }
@@ -455,7 +474,8 @@
     computeRouteText(train) {
       const dir = train && train.direction && train.direction.name ? String(train.direction.name) : "";
       if (dir) {
-        return state.mode === "departure" ? `Vers ${dir}` : `Depuis ${dir}`;
+        const dirDisplay = Utils.displayStationName(dir);
+        return state.mode === "departure" ? `Vers ${dirDisplay}` : `Depuis ${dirDisplay}`;
       }
 
       // Fallbacks (varie selon iRail)
@@ -470,7 +490,8 @@
       for (const c of candidates) {
         const n = Utils.normalize(c);
         if (n && n !== currentNorm) {
-          return state.mode === "departure" ? `Vers ${c}` : `Depuis ${c}`;
+          const cDisplay = Utils.displayStationName(c);
+          return state.mode === "departure" ? `Vers ${cDisplay}` : `Depuis ${cDisplay}`;
         }
       }
 
@@ -578,7 +599,7 @@
       if (rel.length) {
         return `
           <div class="banner">
-            <strong>⚠️ Perturbations — ${Utils.escapeHtml(state.station)}</strong>
+            <strong>⚠️ Perturbations — ${Utils.escapeHtml(Utils.displayStationName(state.station))}</strong>
             <div style="margin-top:8px">${rel.map(renderItem).join("")}</div>
           </div>
         `;
@@ -591,7 +612,7 @@
       const others = [...all].sort(byRecency).slice(0, 5);
       return `
         <details class="banner disturbance-fallback">
-          <summary>ℹ️ Aucune perturbation connue pour ${Utils.escapeHtml(state.station)} — voir les ${others.length} perturbations en cours en Belgique</summary>
+          <summary>ℹ️ Aucune perturbation connue pour ${Utils.escapeHtml(Utils.displayStationName(state.station))} — voir les ${others.length} perturbations en cours en Belgique</summary>
           <div style="margin-top:8px">${others.map(renderItem).join("")}</div>
         </details>
       `;
@@ -657,7 +678,7 @@
               <div class="metro-dot">${isTrainPosition ? "🚂" : ""}</div>
               <div class="metro-info">
                 <div class="metro-station">
-                  <a href="#" class="goto-station" data-station="${Utils.escapeHtml(stop.station)}">${Utils.escapeHtml(stop.station)}</a>
+                  <a href="#" class="goto-station" data-station="${Utils.escapeHtml(stop.station)}">${Utils.escapeHtml(Utils.displayStationName(stop.station))}</a>
                   ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ""}${badge}${platform}
                 </div>
                 <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
@@ -741,7 +762,7 @@
       const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
       if (!list.length) {
         const modeText = state.mode === "departure" ? "départ" : "arrivée";
-        container.innerHTML += `<div class="info">Aucun ${modeText} prévu pour la gare de ${Utils.escapeHtml(state.station)}.</div>`;
+        container.innerHTML += `<div class="info">Aucun ${modeText} prévu pour la gare de ${Utils.escapeHtml(Utils.displayStationName(state.station))}.</div>`;
         return;
       }
 
@@ -955,8 +976,8 @@
         await App.init(true);
 
         if (DOM.stationNameText) {
-          DOM.stationNameText.textContent = `${nearest.standardname} (${best.toFixed(1)} km)`;
-          setTimeout(() => { DOM.stationNameText.textContent = nearest.standardname; }, 3000);
+          DOM.stationNameText.textContent = `${Utils.displayStationName(nearest.standardname)} (${best.toFixed(1)} km)`;
+          setTimeout(() => { DOM.stationNameText.textContent = Utils.displayStationName(nearest.standardname); }, 3000);
         }
       } catch (err) {
         console.error("Erreur géolocalisation:", err);
@@ -1331,7 +1352,7 @@
       } catch (e) {
         console.error("Erreur init:", e);
         const msg = (e.message || "").includes("HTTP 404")
-          ? `Impossible de trouver la gare <strong>${Utils.escapeHtml(state.station)}</strong>.`
+          ? `Impossible de trouver la gare <strong>${Utils.escapeHtml(Utils.displayStationName(state.station))}</strong>.`
           : `Impossible de charger les horaires. (${Utils.escapeHtml(e.message || "Erreur inconnue")})`;
         UI.showError(msg);
       } finally {
