@@ -8,10 +8,26 @@ body{font-family:Inter, Roboto, system-ui, -apple-system, 'Segoe UI', Roboto, 'H
 .card{background:linear-gradient(135deg,#2c4a8f 0%,#3b5db0 100%);color:#fff;border-radius:16px;padding:20px;box-shadow:0 4px 18px rgba(30,58,138,0.18)}
 .title{display:flex;align-items:center;gap:12px}
 .title h1{font-size:20px;font-weight:600;letter-spacing:-0.2px}
-.station-row{display:flex;gap:10px;align-items:center;margin-top:12px}
+.station-row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
 
-.station-name{flex:1;font-weight:600;background:rgba(255,255,255,0.1);padding:10px;border-radius:10px;display:flex;align-items:center;gap:8px}
-.controls{display:flex;gap:8px}
+.station-name{
+  flex:1 1 160px;
+  min-width:0;
+  font-weight:600;
+  background:rgba(255,255,255,0.1);
+  padding:10px;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  overflow:hidden;
+}
+.station-name span{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.controls{display:flex;gap:8px;flex-shrink:0}
 /* ---------- Buttons ---------- */
 button, .btn{
   background: #ffffff;
@@ -45,6 +61,25 @@ button[disabled], .btn[disabled]{
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+/* Boutons icône seule (ex: 🔄 Actualiser) — carrés, compacts, ne débordent jamais */
+.btn-icon-only{
+  padding: 10px 12px;
+  font-size: 17px;
+  line-height: 1;
+  min-width: 40px;
+  justify-content: center;
+}
+
+.btn-locate .btn-icon{ line-height: 1; }
+.btn-locate .btn-label{ white-space: nowrap; }
+
+/* Sur petit écran, "Localiser" perd son libellé texte pour laisser toute la place
+   au nom de la gare, même très long, sans jamais faire déborder la ligne */
+@media (max-width: 420px){
+  .btn-locate .btn-label{ display:none; }
+  .btn-locate{ padding: 10px 12px; min-width: 40px; justify-content: center; }
 }
 
 #refreshBtn{

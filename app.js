@@ -914,7 +914,9 @@
 
       if (DOM.locateBtn) {
         DOM.locateBtn.disabled = true;
-        DOM.locateBtn.textContent = "📍 Localisation…";
+        const label = DOM.locateBtn.querySelector(".btn-label");
+        if (label) label.textContent = " Localisation…";
+        else DOM.locateBtn.textContent = "📍 Localisation…";
       }
 
       try {
@@ -962,7 +964,9 @@
       } finally {
         if (DOM.locateBtn) {
           DOM.locateBtn.disabled = false;
-          DOM.locateBtn.textContent = "📍 Localiser";
+          const label = DOM.locateBtn.querySelector(".btn-label");
+          if (label) label.textContent = " Localiser";
+          else DOM.locateBtn.textContent = "📍 Localiser";
         }
       }
     },
