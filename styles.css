@@ -481,7 +481,44 @@ button[disabled], .btn[disabled]{
 .spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(2,6,23,0.06);border-top-color:#3b5db0;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* ---------- Perturbations : détail par perturbation ---------- */
+/* ---------- Perturbations ---------- */
+.disturbance-banner, .disturbance-fallback-card{
+  padding:14px;
+}
+
+.disturbance-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.disturbance-close{
+  flex-shrink:0;
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  color:#a68a3d;
+  font-size:14px;
+  font-weight:700;
+  padding:2px 6px;
+  border-radius:6px;
+  line-height:1;
+  cursor:pointer;
+}
+.disturbance-close:hover{
+  background:rgba(138,109,30,0.12);
+  transform:none;
+  box-shadow:none;
+}
+
+.disturbance-list{
+  margin-top:10px;
+}
+.disturbance-list-collapsed{
+  display:none;
+}
+
 .disturbance-item{
   padding:8px 0;
   border-top:1px solid rgba(138,109,30,0.12);
@@ -516,23 +553,61 @@ button[disabled], .btn[disabled]{
   margin-top:4px;
   text-decoration:underline;
 }
-.disturbance-fallback{
-  cursor:default;
-}
-.disturbance-fallback summary{
-  cursor:pointer;
+
+/* Repli "aucune perturbation pour cette gare" — bascule maison (pas <details>)
+   pour garder le bouton "masquer" toujours accessible, même replié. */
+.disturbance-summary-toggle{
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  padding:0;
+  margin:0;
+  color:#8a6d1e;
   font-weight:600;
   font-size:13px;
-  list-style:none;
+  text-align:left;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex:1;
 }
-.disturbance-fallback summary::-webkit-details-marker{
-  display:none;
+.disturbance-summary-toggle:hover{
+  background:transparent;
+  transform:none;
+  box-shadow:none;
+  text-decoration:underline;
 }
-.disturbance-fallback summary::before{
-  content:'▸ ';
+.toggle-caret{
+  display:inline-block;
+  transition:transform .2s ease;
+  font-size:11px;
 }
-.disturbance-fallback[open] summary::before{
-  content:'▾ ';
+.disturbance-summary-toggle.open .toggle-caret{
+  transform:rotate(90deg);
+}
+
+/* Pastille discrète quand les perturbations sont masquées */
+.disturbance-muted{
+  margin:12px;
+  padding:8px 12px;
+  border-radius:20px;
+  background:#f1f5f9;
+  color:#64748b;
+  font-size:12px;
+  font-weight:600;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  cursor:pointer;
+  transition:background .18s ease;
+}
+.disturbance-muted:hover{
+  background:#e2e8f0;
+}
+.disturbance-unmute-link{
+  text-decoration:underline;
+  font-weight:700;
 }
 
 /* ---------- Footer ---------- */

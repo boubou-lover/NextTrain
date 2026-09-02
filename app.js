@@ -40,6 +40,7 @@
     allStations: [],
     allStationsNormalized: [],
     disturbances: [],
+    disturbancesHidden: localStorage.getItem("nt_hideDisturbances") === "1",
     expandedVehicle: null,
     expandedApiDate: null,
     trainDetailsCache: {},
@@ -563,9 +564,24 @@
       `;
     },
 
+    // Met à jour uniquement la zone perturbations (masquer/afficher/déplier),
+    // sans recharger toute la liste des trains.
+    refreshDisturbanceZone() {
+      const zone = document.getElementById("disturbanceZone");
+      if (zone) zone.innerHTML = UI.renderDisturbanceBanner();
+    },
+
     renderDisturbanceBanner() {
       const all = state.disturbances || [];
       if (!all.length) return "";
+
+      if (state.disturbancesHidden) {
+        return `
+          <div class="disturbance-muted" data-disturbance-unmute role="button" tabindex="0">
+            🔕 Perturbations masquées (${all.length}) <span class="disturbance-unmute-link">— Afficher</span>
+          </div>
+        `;
+      }
 
       // Matching robuste : tous les mots significatifs du nom de gare doivent apparaître,
       // en tant que mots entiers (pas de sous-chaîne partielle), dans le titre+description.
@@ -596,11 +612,16 @@
         `;
       };
 
+      const closeBtn = `<button type="button" class="disturbance-close" data-disturbance-mute title="Masquer les perturbations" aria-label="Masquer les perturbations">✕</button>`;
+
       if (rel.length) {
         return `
-          <div class="banner">
-            <strong>⚠️ Perturbations — ${Utils.escapeHtml(Utils.displayStationName(state.station))}</strong>
-            <div style="margin-top:8px">${rel.map(renderItem).join("")}</div>
+          <div class="banner disturbance-banner">
+            <div class="disturbance-header">
+              <strong>⚠️ Perturbations — ${Utils.escapeHtml(Utils.displayStationName(state.station))}</strong>
+              ${closeBtn}
+            </div>
+            <div class="disturbance-list">${rel.map(renderItem).join("")}</div>
           </div>
         `;
       }
@@ -611,10 +632,16 @@
       // ("Brux.-Midi" au lieu de "Bruxelles-Midi") que le matching peut manquer.
       const others = [...all].sort(byRecency).slice(0, 5);
       return `
-        <details class="banner disturbance-fallback">
-          <summary>ℹ️ Aucune perturbation connue pour ${Utils.escapeHtml(Utils.displayStationName(state.station))} — voir les ${others.length} perturbations en cours en Belgique</summary>
-          <div style="margin-top:8px">${others.map(renderItem).join("")}</div>
-        </details>
+        <div class="banner disturbance-fallback-card">
+          <div class="disturbance-header">
+            <button type="button" class="disturbance-summary-toggle" data-disturbance-toggle>
+              <span class="toggle-caret">▸</span>
+              ℹ️ Aucune perturbation connue pour ${Utils.escapeHtml(Utils.displayStationName(state.station))} — voir les ${others.length} en Belgique
+            </button>
+            ${closeBtn}
+          </div>
+          <div class="disturbance-list disturbance-list-collapsed" data-disturbance-list>${others.map(renderItem).join("")}</div>
+        </div>
       `;
     },
 
@@ -752,7 +779,7 @@
       if (!container) return;
       container.innerHTML = "";
 
-      container.innerHTML += UI.renderDisturbanceBanner();
+      container.innerHTML += `<div id="disturbanceZone">${UI.renderDisturbanceBanner()}</div>`;
 
       const key = state.mode === "departure" ? "departures" : "arrivals";
       const trainsKey = state.mode === "departure" ? "departure" : "arrival";
@@ -811,6 +838,30 @@
   const Events = {
     // click delegation (train list + itinerary stations)
     async handleTrainsListClick(event) {
+      const muteBtn = event.target.closest("[data-disturbance-mute]");
+      if (muteBtn) {
+        event.preventDefault();
+        App.setDisturbancesHidden(true);
+        return;
+      }
+
+      const unmuteEl = event.target.closest("[data-disturbance-unmute]");
+      if (unmuteEl) {
+        event.preventDefault();
+        App.setDisturbancesHidden(false);
+        return;
+      }
+
+      const toggleEl = event.target.closest("[data-disturbance-toggle]");
+      if (toggleEl) {
+        event.preventDefault();
+        const card = toggleEl.closest(".disturbance-fallback-card");
+        const list = card ? card.querySelector("[data-disturbance-list]") : null;
+        if (list) list.classList.toggle("disturbance-list-collapsed");
+        toggleEl.classList.toggle("open");
+        return;
+      }
+
       const goto = event.target.closest(".goto-station");
       if (goto) {
         event.preventDefault();
@@ -1055,6 +1106,12 @@
       UI.renderFavorites();
     },
 
+    setDisturbancesHidden(hidden) {
+      state.disturbancesHidden = hidden;
+      localStorage.setItem("nt_hideDisturbances", hidden ? "1" : "0");
+      UI.refreshDisturbanceZone();
+    },
+
     setupListeners() {
       // Station search
       if (DOM.stationSearch) {
@@ -1093,6 +1150,12 @@
 
       // Train list click
       if (DOM.trainsList) DOM.trainsList.addEventListener("click", Events.handleTrainsListClick);
+      if (DOM.trainsList) DOM.trainsList.addEventListener("keydown", (e) => {
+        if ((e.key === "Enter" || e.key === " ") && e.target.closest("[data-disturbance-unmute]")) {
+          e.preventDefault();
+          App.setDisturbancesHidden(false);
+        }
+      });
 
       // Locate
       if (DOM.locateBtn) DOM.locateBtn.addEventListener("click", Events.handleLocate);
