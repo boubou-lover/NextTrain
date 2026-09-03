@@ -92,7 +92,10 @@
       const now = Utils.nowSeconds();
       const diff = Number(realTimestampSec) - now;
 
-      if (diff <= -30) return { text: "Parti", cls: "relative-past" };
+      if (diff <= -30) {
+        const pastText = state.mode === "arrival" ? "Arrivé" : "Parti";
+        return { text: pastText, cls: "relative-past" };
+      }
       if (diff < 60) return { text: "Imminent", cls: "relative-now" };
 
       const mins = Math.round(diff / 60);
@@ -1411,7 +1414,11 @@
         const data = await API.getStationBoard(state.station, state.mode);
         await UI.renderTrainsList(data);
 
-        state.autoRefreshHandle = setTimeout(() => this.init(), CONFIG.AUTO_REFRESH);
+        // Pas la peine d'auto-refresh pendant que l'onglet est en arrière-plan :
+        // on resynchronisera immédiatement au retour (voir visibilitychange dans start()).
+        if (!document.hidden) {
+          state.autoRefreshHandle = setTimeout(() => this.init(), CONFIG.AUTO_REFRESH);
+        }
       } catch (e) {
         console.error("Erreur init:", e);
         const msg = (e.message || "").includes("HTTP 404")
@@ -1443,8 +1450,22 @@
       this.loadVersion();
       await this.init();
 
-      // Ticker "dans X min" — mise à jour légère indépendante du refresh réseau
-      setInterval(() => UI.tickRelativeTimes(), CONFIG.RELATIVE_TIME_TICK);
+      // Ticker "dans X min" — mise à jour légère indépendante du refresh réseau,
+      // mise en pause quand l'onglet n'est pas visible (inutile de travailler en arrière-plan).
+      let tickHandle = setInterval(() => UI.tickRelativeTimes(), CONFIG.RELATIVE_TIME_TICK);
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          clearInterval(tickHandle);
+          if (state.autoRefreshHandle) clearTimeout(state.autoRefreshHandle);
+        } else {
+          // Retour sur l'onglet : on resynchronise tout de suite (compteurs + données)
+          // plutôt que d'attendre le prochain tick/refresh programmé.
+          UI.tickRelativeTimes();
+          tickHandle = setInterval(() => UI.tickRelativeTimes(), CONFIG.RELATIVE_TIME_TICK);
+          if (!state.isFetching) this.init(true);
+        }
+      });
     }
   };
 
