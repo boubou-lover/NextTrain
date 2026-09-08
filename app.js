@@ -1234,60 +1234,46 @@
       // Helper: sleep function
       const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-      // Helper: run tasks with limited concurrency + early exit + delay between requests
+      // Helper: run tasks with limited concurrency, en respectant la PRIORITÉ des candidats.
+      // Important : on ne retourne pas le premier résultat dont la requête réseau arrive
+      // en premier (ex: THA2119 qui répond plus vite qu'IC2119) — on attend que tous les
+      // candidats aient répondu, puis on prend le premier valide dans l'ordre de la liste
+      // (IC > IR > L > P > S > ICT > THA > EUR > EXT, voir buildVehicleIdCandidates).
       async function runWithConcurrency(items, limit, worker) {
+        const results = new Array(items.length).fill(null);
         let idx = 0;
-        let foundResult = null;
-        const running = new Set();
 
         async function runNext() {
-          while (idx < items.length && !foundResult) {
+          while (idx < items.length) {
             const my = idx++;
             const item = items[my];
-            
+
             // Petit délai entre les requêtes pour ne pas surcharger l'API
             if (my > 0 && my % limit === 0) {
               await sleep(100);
             }
-            
-            const promise = (async () => {
-              try {
-                const result = await worker(item, my);
-                if (result && !foundResult) {
-                  foundResult = result;
-                  console.log(`[SEARCH] ✅ Trouvé: ${item}`);
-                }
-                return result;
-              } catch (e) {
-                console.log(`[SEARCH] ❌ Échec: ${item} (${e.message || 'erreur'})`);
-                return null;
-              } finally {
-                running.delete(promise);
-              }
-            })();
-            
-            running.add(promise);
-            
-            // Limite de concurrence
-            if (running.size >= limit) {
-              await Promise.race([...running]);
+
+            try {
+              const result = await worker(item, my);
+              if (result) console.log(`[SEARCH] ✅ Candidat valide: ${item}`);
+              results[my] = result;
+            } catch (e) {
+              console.log(`[SEARCH] ❌ Échec: ${item} (${e.message || 'erreur'})`);
+              results[my] = null;
             }
           }
         }
 
-        // Démarrer les workers
         const workers = Array(Math.min(limit, items.length))
           .fill(0)
           .map(() => runNext());
 
         await Promise.all(workers);
-        
-        // Attendre que tous les running se terminent
-        if (running.size > 0) {
-          await Promise.all([...running]);
-        }
 
-        return foundResult;
+        // Premier résultat valide dans l'ordre de PRIORITÉ, pas dans l'ordre d'arrivée réseau.
+        const winner = results.find((r) => r) || null;
+        if (winner) console.log(`[SEARCH] 🏆 Retenu (priorité la plus haute): ${winner.vehicleId}`);
+        return winner;
       }
 
       // Recherche par jour avec cache
