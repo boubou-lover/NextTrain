@@ -144,6 +144,13 @@
     .replace(/[\u0300-\u036f]/g, "");
 },
 
+    // Découpe une chaîne déjà normalisée en mots (ex: "bruxelles-midi" → ["bruxelles","midi"]),
+    // sans filtre de longueur minimale (utile pour la recherche, contrairement à
+    // stationNameParts ci-dessous qui sert au matching des perturbations).
+    wordsOf(normalizedStr) {
+      return (normalizedStr || "").split(/[^a-z0-9]+/).filter(Boolean);
+    },
+
     // Découpe un nom de gare en mots significatifs pour un matching plus robuste
     // que la simple recherche de sous-chaîne (ex: "Bruxelles-Midi" → ["bruxelles","midi"]).
     // Les mots de moins de 3 lettres sont ignorés (de, la, du...).
@@ -430,27 +437,41 @@
       DOM.trainsList.innerHTML = `<div class="error">⚠️ ${message}</div>`;
     },
 
+    // Classe les résultats par pertinence plutôt que par simple ordre alphabétique global :
+    // 1) la gare COMMENCE par la recherche (ex: "na" → "Namur")
+    // 2) un MOT de la gare commence par la recherche (ex: "midi" → "Bruxelles-Midi")
+    // 3) la recherche apparaît n'importe où (ex: "el" → "Bruxelles-...")
+    // Chaque groupe est ensuite trié alphabétiquement en interne, sans jamais mélanger
+    // les groupes entre eux (c'était le bug : un tri final unique annulait ce classement).
     renderStationSelect(filter = "") {
       const select = DOM.stationSelect;
       if (!select) return;
       select.innerHTML = "";
 
       const q = Utils.normalize(filter);
-      let list = state.allStationsNormalized;
+      const byName = (a, b) => (a.standardname || "").localeCompare(b.standardname || "");
+      let stations;
 
       if (q) {
         const starts = [];
+        const wordStart = [];
         const contains = [];
-        for (const s of list) {
-          if (s.norm.startsWith(q)) starts.push(s.raw);
-          else if (s.norm.includes(q)) contains.push(s.raw);
+        for (const s of state.allStationsNormalized) {
+          if (s.norm.startsWith(q)) {
+            starts.push(s.raw);
+          } else if (Utils.wordsOf(s.norm).some((w) => w.startsWith(q))) {
+            wordStart.push(s.raw);
+          } else if (s.norm.includes(q)) {
+            contains.push(s.raw);
+          }
         }
-        list = [...starts, ...contains].map((raw) => ({ raw, norm: "" }));
+        starts.sort(byName);
+        wordStart.sort(byName);
+        contains.sort(byName);
+        stations = [...starts, ...wordStart, ...contains].slice(0, 60);
+      } else {
+        stations = state.allStationsNormalized.map((s) => s.raw).sort(byName).slice(0, 60);
       }
-
-      const stations = (q ? list.map((x) => x.raw) : list.map((x) => x.raw))
-        .slice(0, 60)
-        .sort((a, b) => (a.standardname || "").localeCompare(b.standardname || ""));
 
       if (!stations.length && filter) {
         select.innerHTML = `<option disabled>❌ Aucune gare trouvée</option>`;
