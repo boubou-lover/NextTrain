@@ -695,6 +695,7 @@
 
           const delay = parseInt(stop.delay || 0, 10);
           const delayMin = Math.floor(delay / 60);
+          const hasDelay = !isCanceled && delay > 0;
           const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : "";
           const platform = stop.platform ? ` <span class="stop-platform">Voie ${Utils.escapeHtml(stop.platform)}</span>` : "";
 
@@ -704,7 +705,7 @@
           if (!isCanceled && isNextStop) badge += ` <span class="next-stop-badge">Prochain arrêt</span>`;
 
           html += `
-            <div class="metro-stop ${i === 0 ? "first" : ""} ${i === lastIdx ? "last" : ""} ${isCurrentStation ? "current" : ""} ${isTrainPosition ? "train-position" : ""} ${isPassed ? "passed" : ""} ${isCanceled ? "canceled" : ""} ${isNextStop ? "next-stop" : ""}">
+            <div class="metro-stop ${i === 0 ? "first" : ""} ${i === lastIdx ? "last" : ""} ${isCurrentStation ? "current" : ""} ${isTrainPosition ? "train-position" : ""} ${isPassed ? "passed" : ""} ${isCanceled ? "canceled" : ""} ${isNextStop ? "next-stop" : ""} ${hasDelay ? "has-delay" : ""}">
               <div class="metro-dot">${isTrainPosition ? "🚂" : ""}</div>
               <div class="metro-info">
                 <div class="metro-station">
