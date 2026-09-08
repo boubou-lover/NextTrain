@@ -18,6 +18,8 @@
     FETCH_TIMEOUT: 15000, // Augmenté à 15s
     OFFLINE_STATIONS_TTL: 7 * 24 * 60 * 60 * 1000,
     OFFLINE_LIVEBOARD_TTL: 10 * 60 * 1000,
+    SCROLL_LOAD_MORE_THRESHOLD: 400, // px avant le bas de page pour charger la suite des trains
+    SCROLL_DEBOUNCE_DELAY: 150,
 
     // Global train search cache - OPTIMISÉ
     GLOBAL_SEARCH_CACHE_TTL: 30 * 60 * 1000,
@@ -41,6 +43,11 @@
     allStationsNormalized: [],
     stationDropdownItems: [], // stations actuellement affichées dans la liste maison (hors lignes désactivées)
     stationDropdownActive: -1, // index sélectionné au clavier (-1 = aucun)
+    boardHasMore: true, // reste-t-il des trains à charger pour la journée en cours ?
+    boardLoadingMore: false,
+    boardLastTime: null, // heure programmée (epoch sec) du dernier train affiché — curseur de pagination
+    boardLoadDate: null, // jour du tableau affiché, pour détecter un passage à minuit
+    shownTrainKeys: new Set(), // "vehicle__time" déjà affichés, pour dédupliquer au chargement de la suite
     disturbances: [],
     disturbancesHidden: localStorage.getItem("nt_hideDisturbances") === "1",
     expandedVehicle: null,
@@ -352,19 +359,24 @@
       }
     },
 
-    async getStationBoard(station, mode) {
+    async getStationBoard(station, mode, timeHHMM) {
       const arrdep = mode === "arrival" ? "ARR" : "DEP";
-      const url = `${CONFIG.API_BASE}/liveboard/?station=${encodeURIComponent(station)}&arrdep=${arrdep}&lang=${Utils.lang()}&format=json`;
+      let url = `${CONFIG.API_BASE}/liveboard/?station=${encodeURIComponent(station)}&arrdep=${arrdep}&lang=${Utils.lang()}&format=json`;
+      if (timeHHMM) url += `&time=${encodeURIComponent(timeHHMM)}`;
       try {
         const data = await this.fetchWithTimeout(url, 15000);
-        Offline.saveLiveboard(station, mode, data);
+        // On ne met en cache hors-ligne que le tableau initial (page complète du jour) :
+        // une page "charger plus" écraserait le cache avec une liste partielle.
+        if (!timeHHMM) Offline.saveLiveboard(station, mode, data);
         return data;
       } catch (e) {
         console.warn("Erreur getStationBoard:", e.message);
-        const offline = Offline.loadLiveboard(station, mode);
-        if (offline) {
-          console.log("Utilisation des données hors ligne");
-          return offline;
+        if (!timeHHMM) {
+          const offline = Offline.loadLiveboard(station, mode);
+          if (offline) {
+            console.log("Utilisation des données hors ligne");
+            return offline;
+          }
         }
         throw e;
       }
@@ -862,15 +874,79 @@
       const raw = block && block[trainsKey];
 
       const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+      // Réinitialise la pagination "charger plus" à chaque rendu complet
+      // (nouvelle gare, changement de mode, auto-refresh...).
+      state.shownTrainKeys = new Set(list.map((t) => `${t.vehicle}__${t.time}`));
+      state.boardLastTime = list.length ? Number(list[list.length - 1].time) : null;
+      state.boardLoadDate = new Date();
+      state.boardHasMore = list.length > 0;
+      state.boardLoadingMore = false;
+
       if (!list.length) {
         const modeText = state.mode === "departure" ? "départ" : "arrivée";
         container.innerHTML += `<div class="info">Aucun ${modeText} prévu pour la gare de ${Utils.escapeHtml(Utils.displayStationName(state.station))}.</div>`;
         return;
       }
 
-      container.innerHTML += list.map((t) => UI.renderTrain(t)).join("");
+      container.innerHTML += `<div id="trainsListItems">${list.map((t) => UI.renderTrain(t)).join("")}</div>`;
+      container.innerHTML += `<div id="loadMoreZone" class="load-more-zone"></div>`;
 
       await UI.restoreExpandedState();
+    },
+
+    // Charge la suite des trains du jour en interrogeant à nouveau le liveboard,
+    // à partir de l'heure du dernier train déjà affiché (paramètre "time" de l'API iRail).
+    // Déclenché par le scroll (voir setupListeners) plutôt que par un bouton "page suivante".
+    async loadMoreTrains() {
+      const itemsEl = document.getElementById("trainsListItems");
+      if (!itemsEl) return; // pas la liste standard (ex: vue "résultat de recherche de train")
+      if (state.boardLoadingMore || !state.boardHasMore || state.isFetching) return;
+      if (state.boardLastTime == null) { state.boardHasMore = false; return; }
+
+      state.boardLoadingMore = true;
+      const zone = document.getElementById("loadMoreZone");
+      if (zone) zone.innerHTML = `<div class="load-more-spinner"><div class="spinner small"></div> Chargement de la suite…</div>`;
+
+      try {
+        const nextDate = new Date((state.boardLastTime + 60) * 1000);
+
+        // La requête ne couvre qu'une journée : si l'heure suivante retombe sur un autre
+        // jour calendaire (passage de minuit), il n'y a plus rien à charger pour aujourd'hui.
+        if (!state.boardLoadDate || nextDate.getDate() !== state.boardLoadDate.getDate()) {
+          state.boardHasMore = false;
+          if (zone) zone.innerHTML = `<div class="load-more-end">Fin des horaires du jour.</div>`;
+          return;
+        }
+
+        const data = await API.getStationBoard(state.station, state.mode, Utils.toHHMM(nextDate));
+
+        const key = state.mode === "departure" ? "departures" : "arrivals";
+        const trainsKey = state.mode === "departure" ? "departure" : "arrival";
+        const block = data && data[key];
+        const raw = block && block[trainsKey];
+        const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+        const fresh = list.filter((t) => !state.shownTrainKeys.has(`${t.vehicle}__${t.time}`));
+
+        if (!fresh.length) {
+          state.boardHasMore = false;
+          if (zone) zone.innerHTML = `<div class="load-more-end">Plus aucun train prévu pour aujourd'hui.</div>`;
+          return;
+        }
+
+        fresh.forEach((t) => state.shownTrainKeys.add(`${t.vehicle}__${t.time}`));
+        state.boardLastTime = Number(fresh[fresh.length - 1].time);
+
+        itemsEl.insertAdjacentHTML("beforeend", fresh.map((t) => UI.renderTrain(t)).join(""));
+        if (zone) zone.innerHTML = "";
+      } catch (e) {
+        console.warn("Erreur loadMoreTrains:", e.message);
+        // Pas bloquant : l'utilisateur peut simplement re-scroller pour réessayer.
+        if (zone) zone.innerHTML = "";
+      } finally {
+        state.boardLoadingMore = false;
+      }
     },
 
     // Ré-ouvre automatiquement la fiche du train qui était consultée avant un refresh
@@ -1285,6 +1361,17 @@
       if (DOM.trainSearchBtn) {
         DOM.trainSearchBtn.addEventListener("click", (e) => Events.handleTrainSearchSubmit(e));
       }
+
+      // Chargement automatique de la suite des trains en scrollant vers le bas
+      // (voir UI.loadMoreTrains — pagine sur le liveboard iRail via le paramètre "time")
+      window.addEventListener(
+        "scroll",
+        Utils.debounce(() => {
+          const remaining = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+          if (remaining < CONFIG.SCROLL_LOAD_MORE_THRESHOLD) UI.loadMoreTrains();
+        }, CONFIG.SCROLL_DEBOUNCE_DELAY),
+        { passive: true }
+      );
     },
 
     // ========== RECHERCHE GLOBALE OPTIMISÉE ==========
