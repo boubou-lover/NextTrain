@@ -39,6 +39,8 @@
     })(),
     allStations: [],
     allStationsNormalized: [],
+    stationDropdownItems: [], // stations actuellement affichées dans la liste maison (hors lignes désactivées)
+    stationDropdownActive: -1, // index sélectionné au clavier (-1 = aucun)
     disturbances: [],
     disturbancesHidden: localStorage.getItem("nt_hideDisturbances") === "1",
     expandedVehicle: null,
@@ -151,6 +153,22 @@
       return (normalizedStr || "").split(/[^a-z0-9]+/).filter(Boolean);
     },
 
+    // Entoure de <mark> la première occurrence de la recherche dans le texte affiché
+    // (comparaison insensible aux accents/casse via normalize, mais le texte original
+    // est préservé pour l'affichage). Retourne du HTML déjà échappé, prêt à insérer.
+    highlightMatch(text, rawQuery) {
+      const safe = Utils.escapeHtml(text);
+      const q = Utils.normalize(rawQuery);
+      if (!q) return safe;
+      const norm = Utils.normalize(text);
+      const idx = norm.indexOf(q);
+      if (idx === -1) return safe;
+      const before = Utils.escapeHtml(text.slice(0, idx));
+      const match = Utils.escapeHtml(text.slice(idx, idx + q.length));
+      const after = Utils.escapeHtml(text.slice(idx + q.length));
+      return `${before}<mark>${match}</mark>${after}`;
+    },
+
     // Découpe un nom de gare en mots significatifs pour un matching plus robuste
     // que la simple recherche de sous-chaîne (ex: "Bruxelles-Midi" → ["bruxelles","midi"]).
     // Les mots de moins de 3 lettres sont ignorés (de, la, du...).
@@ -217,7 +235,7 @@
   // ---------- DOM ----------
   const DOM = {
     stationNameText: document.getElementById("stationNameText"),
-    stationSelect: document.getElementById("stationSelect"),
+    stationDropdown: document.getElementById("stationDropdown"),
     stationSearch: document.getElementById("stationSearch"),
     stationSearchBtn: document.getElementById("stationSearchBtn"),
     trainSearch: document.getElementById("trainSearch"),
@@ -444,9 +462,8 @@
     // Chaque groupe est ensuite trié alphabétiquement en interne, sans jamais mélanger
     // les groupes entre eux (c'était le bug : un tri final unique annulait ce classement).
     renderStationSelect(filter = "") {
-      const select = DOM.stationSelect;
-      if (!select) return;
-      select.innerHTML = "";
+      const dropdown = DOM.stationDropdown;
+      if (!dropdown) return;
 
       const q = Utils.normalize(filter);
       const byName = (a, b) => (a.standardname || "").localeCompare(b.standardname || "");
@@ -473,16 +490,47 @@
         stations = state.allStationsNormalized.map((s) => s.raw).sort(byName).slice(0, 60);
       }
 
+      state.stationDropdownItems = stations;
+      state.stationDropdownActive = -1;
+
       if (!stations.length && filter) {
-        select.innerHTML = `<option disabled>❌ Aucune gare trouvée</option>`;
+        dropdown.innerHTML = `<div class="station-option disabled">❌ Aucune gare trouvée</div>`;
       } else {
-        select.innerHTML = stations
-          .map((s) => `<option value="${Utils.escapeHtml(s.standardname)}" ${s.standardname === state.station ? "selected" : ""}>${Utils.escapeHtml(Utils.displayStationName(s.standardname))}</option>`)
+        dropdown.innerHTML = stations
+          .map((s, i) => {
+            const displayName = Utils.displayStationName(s.standardname);
+            const label = filter ? Utils.highlightMatch(displayName, filter) : Utils.escapeHtml(displayName);
+            return `<div class="station-option" id="station-opt-${i}" role="option" data-index="${i}" data-station="${Utils.escapeHtml(s.standardname)}">${label}</div>`;
+          })
           .join("");
-        if (stations.length === 60) select.innerHTML += `<option disabled>… (limité à 60)</option>`;
+        if (stations.length === 60) dropdown.innerHTML += `<div class="station-option disabled">… (limité à 60)</div>`;
       }
 
-      select.style.display = filter ? "block" : "none";
+      dropdown.style.display = filter ? "block" : "none";
+      if (DOM.stationSearch) DOM.stationSearch.setAttribute("aria-expanded", filter ? "true" : "false");
+    },
+
+    // Met en évidence l'option active au clavier (flèches haut/bas) et la garde visible.
+    setActiveStationOption(index) {
+      const dropdown = DOM.stationDropdown;
+      if (!dropdown) return;
+
+      const options = dropdown.querySelectorAll(".station-option:not(.disabled)");
+      options.forEach((el) => el.classList.remove("active"));
+
+      const count = state.stationDropdownItems.length;
+      if (!count) { state.stationDropdownActive = -1; return; }
+
+      // Boucle sur la liste (flèche bas en bas de liste revient en haut, et inversement)
+      const next = ((index % count) + count) % count;
+      state.stationDropdownActive = next;
+
+      const el = options[next];
+      if (el) {
+        el.classList.add("active");
+        el.scrollIntoView({ block: "nearest" });
+        if (DOM.stationSearch) DOM.stationSearch.setAttribute("aria-activedescendant", el.id);
+      }
     },
 
     renderOccupancy(occupancy) {
@@ -943,38 +991,63 @@
       UI.renderStationSelect(e.target.value);
     }, CONFIG.DEBOUNCE_DELAY),
 
-    // Enter/search/change on mobile => choose first match and load
-    submitStationSearch() {
-      const select = DOM.stationSelect;
-      if (!select) return;
-      if (select.style.display === "none") return;
-
-      let opt = select.options[select.selectedIndex];
-      if (!opt || opt.disabled) {
-        opt = Array.from(select.options).find((o) => !o.disabled);
-      }
-      if (!opt || opt.disabled) return;
-
-      state.station = opt.value;
+    // Applique la sélection d'une gare, quelle que soit sa source (clic, clavier, Entrée).
+    selectStation(stationName) {
+      if (!stationName) return;
+      state.station = stationName;
       state.expandedVehicle = null;
       state.expandedApiDate = null;
       App.saveState();
 
-      if (DOM.stationSearch) DOM.stationSearch.value = "";
-      select.style.display = "none";
+      if (DOM.stationSearch) {
+        DOM.stationSearch.value = "";
+        DOM.stationSearch.setAttribute("aria-expanded", "false");
+      }
+      if (DOM.stationDropdown) DOM.stationDropdown.style.display = "none";
       App.init(true);
     },
 
-    handleStationSelect(e) {
-      const value = e.target.value;
-      if (!value) return;
-      state.station = value;
-      state.expandedVehicle = null;
-      state.expandedApiDate = null;
-      App.saveState();
-      if (DOM.stationSearch) DOM.stationSearch.value = "";
-      if (DOM.stationSelect) DOM.stationSelect.style.display = "none";
-      App.init(true);
+    // Enter/search/change on mobile => choisit l'option surlignée au clavier,
+    // ou à défaut la première option de la liste, et charge la gare.
+    submitStationSearch() {
+      const dropdown = DOM.stationDropdown;
+      if (!dropdown || dropdown.style.display === "none") return;
+
+      const items = state.stationDropdownItems;
+      if (!items || !items.length) return;
+
+      const chosen = state.stationDropdownActive >= 0 ? items[state.stationDropdownActive] : items[0];
+      if (!chosen) return;
+
+      Events.selectStation(chosen.standardname);
+    },
+
+    // Clic sur une ligne de la liste maison
+    handleStationDropdownClick(e) {
+      const opt = e.target.closest(".station-option[data-station]");
+      if (!opt) return;
+      Events.selectStation(opt.dataset.station);
+    },
+
+    // Navigation clavier dans la liste (flèches haut/bas, Échap pour fermer)
+    handleStationSearchKeydown(e) {
+      const dropdown = DOM.stationDropdown;
+      const isOpen = !!dropdown && dropdown.style.display !== "none";
+
+      if (e.key === "ArrowDown") {
+        if (!isOpen) return;
+        e.preventDefault();
+        UI.setActiveStationOption(state.stationDropdownActive + 1);
+      } else if (e.key === "ArrowUp") {
+        if (!isOpen) return;
+        e.preventDefault();
+        UI.setActiveStationOption(state.stationDropdownActive - 1);
+      } else if (e.key === "Escape") {
+        if (isOpen) { dropdown.style.display = "none"; DOM.stationSearch?.setAttribute("aria-expanded", "false"); }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        Events.submitStationSearch();
+      }
     },
 
     handleModeChange(mode) {
@@ -986,9 +1059,12 @@
     },
 
     handleDocumentClick(e) {
-      const isSelect = DOM.stationSelect && DOM.stationSelect.contains(e.target);
+      const isDropdown = DOM.stationDropdown && DOM.stationDropdown.contains(e.target);
       const isSearch = DOM.stationSearch && DOM.stationSearch.contains(e.target);
-      if (!isSelect && !isSearch && DOM.stationSelect) DOM.stationSelect.style.display = "none";
+      if (!isDropdown && !isSearch && DOM.stationDropdown) {
+        DOM.stationDropdown.style.display = "none";
+        DOM.stationSearch?.setAttribute("aria-expanded", "false");
+      }
     },
 
     // Global train search triggers
@@ -1144,13 +1220,8 @@
       if (DOM.stationSearch) {
         DOM.stationSearch.addEventListener("input", Events.handleStationSearch);
 
-        // Android/iOS "Enter" / "Go"
-        DOM.stationSearch.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            Events.submitStationSearch();
-          }
-        });
+        // Flèches haut/bas, Entrée, Échap — navigation clavier dans la liste maison
+        DOM.stationSearch.addEventListener("keydown", Events.handleStationSearchKeydown);
 
         // Event "search" for input[type=search] on some browsers
         DOM.stationSearch.addEventListener("search", (e) => {
@@ -1169,8 +1240,9 @@
         DOM.stationSearchBtn.addEventListener("click", () => Events.submitStationSearch());
       }
 
-      if (DOM.stationSelect) {
-        DOM.stationSelect.addEventListener("change", Events.handleStationSelect);
+      // Clic sur une ligne de la liste de gares (remplace l'ancien <select> natif)
+      if (DOM.stationDropdown) {
+        DOM.stationDropdown.addEventListener("click", Events.handleStationDropdownClick);
       }
 
       // Mode tabs

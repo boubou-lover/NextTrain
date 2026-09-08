@@ -105,7 +105,6 @@ button[disabled], .btn[disabled]{
 }
 
 .search{width:100%;padding:10px;border-radius:10px;border:none;font-size:14px}
-.station-select{width:100%;padding:10px;border-radius:10px;border:none;margin-top:8px;background:rgba(255,255,255,0.1);color:#fff}
 
 /* ---------- Groupe recherche (champ + loupe intégrée) ---------- */
 .search-group{position:relative;margin-top:12px}
@@ -662,8 +661,8 @@ footer{margin-top:12px;color:#94a3b8;text-align:center;font-size:13px}
   align-items: center;
   gap: 12px;
 }
-/* ====== Autocomplete Google Maps style (FIX lisibilité) ====== */
-#stationSelect {
+/* ====== Autocomplete maison (div + surlignage <mark>, remplace le <select> natif) ====== */
+.station-dropdown {
   display: none;
   position: absolute;
   top: 100%;
@@ -689,38 +688,41 @@ footer{margin-top:12px;color:#94a3b8;text-align:center;font-size:13px}
   box-shadow: 0 8px 20px rgba(15,23,42,0.1);
 }
 
-#stationSelect option {
-  background: #ffffff;
-  color: #0f172a;
-
+.station-option {
   padding: 10px 14px;
   cursor: pointer;
-
   border-bottom: 1px solid #f1f5f9;
 }
 
-#stationSelect option:last-child {
+.station-option:last-child {
   border-bottom: none;
 }
 
-#stationSelect option:hover,
-#stationSelect option:checked {
+.station-option:hover,
+.station-option.active {
   background: #eef2f7;
-  color: #0f172a;
 }
 
-#stationSelect option:disabled {
+.station-option mark {
+  background: #fde68a;
+  color: #78350f;
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 700;
+}
+
+.station-option.disabled {
   background: #f8fafc;
   color: #94a3b8;
   cursor: default;
 }
 
 /* Scrollbar Android / Chrome */
-#stationSelect::-webkit-scrollbar {
+.station-dropdown::-webkit-scrollbar {
   width: 6px;
 }
 
-#stationSelect::-webkit-scrollbar-thumb {
+.station-dropdown::-webkit-scrollbar-thumb {
   background: #e2e8f0;
   border-radius: 3px;
 }
