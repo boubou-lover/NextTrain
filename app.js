@@ -212,7 +212,9 @@
     stationNameText: document.getElementById("stationNameText"),
     stationSelect: document.getElementById("stationSelect"),
     stationSearch: document.getElementById("stationSearch"),
+    stationSearchBtn: document.getElementById("stationSearchBtn"),
     trainSearch: document.getElementById("trainSearch"),
+    trainSearchBtn: document.getElementById("trainSearchBtn"),
     tabDeparture: document.getElementById("tabDeparture"),
     tabArrival: document.getElementById("tabArrival"),
     trainsList: document.getElementById("trainsList"),
@@ -1141,6 +1143,11 @@
         });
       }
 
+      // Bouton loupe : déclenche la même recherche que Entrée
+      if (DOM.stationSearchBtn) {
+        DOM.stationSearchBtn.addEventListener("click", () => Events.submitStationSearch());
+      }
+
       if (DOM.stationSelect) {
         DOM.stationSelect.addEventListener("change", Events.handleStationSelect);
       }
@@ -1179,6 +1186,11 @@
         });
         DOM.trainSearch.addEventListener("search", (e) => Events.handleTrainSearchSubmit(e));
         DOM.trainSearch.addEventListener("change", (e) => Events.handleTrainSearchSubmit(e));
+      }
+
+      // Bouton loupe : déclenche la même recherche que Entrée
+      if (DOM.trainSearchBtn) {
+        DOM.trainSearchBtn.addEventListener("click", (e) => Events.handleTrainSearchSubmit(e));
       }
     },
 
