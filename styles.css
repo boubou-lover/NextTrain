@@ -104,8 +104,40 @@ button[disabled], .btn[disabled]{
   box-shadow: 0 4px 12px rgba(74,127,224,0.25);
 }
 
-.search{width:100%;padding:10px;border-radius:10px;border:none;font-size:14px;margin-top:12px}
+.search{width:100%;padding:10px;border-radius:10px;border:none;font-size:14px}
 .station-select{width:100%;padding:10px;border-radius:10px;border:none;margin-top:8px;background:rgba(255,255,255,0.1);color:#fff}
+
+/* ---------- Groupe recherche (champ + loupe intégrée) ---------- */
+.search-group{position:relative;margin-top:12px}
+.search-group .search{width:100%;padding-right:42px}
+.search-btn{
+  position:absolute;
+  top:50%;
+  right:5px;
+  transform:translateY(-50%);
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  color:#3b5db0;
+  font-size:17px;
+  line-height:1;
+  padding:7px 8px;
+  border-radius:8px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:background .15s ease;
+}
+.search-btn:hover{
+  background:rgba(59,93,176,0.1);
+  transform:translateY(-50%);
+  box-shadow:none;
+}
+.search-btn:active{
+  transform:translateY(-50%) scale(0.92);
+  box-shadow:none;
+}
 
 /* ---------- Tabs ---------- */
 .tabs{display:flex;margin-top:12px;gap:8px}
