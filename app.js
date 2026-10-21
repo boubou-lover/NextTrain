@@ -62,6 +62,15 @@
 
   // ---------- UTILITAIRES ----------
   const Utils = {
+    // iRail renvoie ses booléens sous des formes variables ("1", 1, true, "true").
+    isFlagged(v) {
+      return v === true || v === 1 || v === "1" || (typeof v === "string" && v.toLowerCase() === "true");
+    },
+    // Un train / arrêt est supprimé si l'un des champs d'annulation est positionné
+    // (selon l'endpoint : canceled, departureCanceled ou arrivalCanceled).
+    isCanceledItem(o) {
+      return !!o && (Utils.isFlagged(o.canceled) || Utils.isFlagged(o.departureCanceled) || Utils.isFlagged(o.arrivalCanceled));
+    },
     lang() {
       // Forcé en français : l'API iRail renvoie parfois les noms de gares
       // transfrontalières dans la langue du pays voisin (ex: "Lëtzebuerg" pour
@@ -622,7 +631,7 @@
       const platform = train.platform || "—";
       const delaySec = parseInt(train.delay || 0, 10);
       const delayMin = Math.floor(delaySec / 60);
-      const cancelled = train.canceled === "1" || train.canceled === 1 || train.canceled === true;
+      const cancelled = Utils.isCanceledItem(train);
       // Un train supprimé n'est jamais "à l'heure" : on affiche un badge dédié, bien visible.
       const delayText = cancelled
         ? `<div class="delay cancelled-badge">🚫 Supprimé</div>`
@@ -737,6 +746,24 @@
       `;
     },
 
+    // Si les détails (itinéraire) révèlent une suppression totale que la liste n'indiquait pas,
+    // on met aussi la ligne du train à jour.
+    syncRowCancelled(detailsEl) {
+      const row = detailsEl && detailsEl.previousElementSibling;
+      if (!row || !row.classList || !row.classList.contains("train") || row.dataset.cancelled === "1") return;
+      if (!detailsEl.querySelector(".cancel-banner:not(.partial)")) return;
+      row.classList.add("cancelled");
+      row.dataset.cancelled = "1";
+      const t = row.querySelector(".time");
+      if (t) t.classList.add("time-cancelled");
+      const rel = row.querySelector(".relative-time");
+      if (rel) rel.remove();
+      const pf = row.querySelector(".platform");
+      if (pf) pf.remove();
+      const d = row.querySelector(".delay");
+      if (d) { d.className = "delay cancelled-badge"; d.textContent = "🚫 Supprimé"; }
+    },
+
     renderTrainDetails(details, currentStation, opts = {}) {
       let html = "";
 
@@ -749,7 +776,7 @@
         const lastIdx = stops.length - 1;
 
         // Suppression : totale (flag du train, ou tous les arrêts annulés) ou partielle.
-        const isStopCanceled = (st) => st.canceled === "1" || st.canceled === 1 || st.canceled === true;
+        const isStopCanceled = (st) => Utils.isCanceledItem(st);
         const canceledStops = stops.filter(isStopCanceled);
         const fullCancel = !!opts.cancelled || (stops.length > 0 && canceledStops.length === stops.length);
 
@@ -1006,6 +1033,7 @@
       const cached = Cache.get(Utils.cacheKey(vehicleId, apiDate));
       if (cached) {
         detailsEl.innerHTML = UI.renderTrainDetails(cached, state.station, { cancelled: trainEl.dataset.cancelled === "1" });
+        UI.syncRowCancelled(detailsEl);
         return;
       }
 
@@ -1017,6 +1045,7 @@
       `;
       const details = await API.getVehicleDetails(vehicleId, apiDate);
       detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { cancelled: trainEl.dataset.cancelled === "1" });
+      UI.syncRowCancelled(detailsEl);
     }
   };
 
@@ -1098,6 +1127,7 @@
       if (detailsEl) {
         const rowEl = detailsEl.previousElementSibling;
         detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { cancelled: !!(rowEl && rowEl.dataset && rowEl.dataset.cancelled === "1") });
+        UI.syncRowCancelled(detailsEl);
       }
     },
 
