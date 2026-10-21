@@ -64,6 +64,7 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin || event.request.method !== 'GET') {
     return; // laisse passer tel quel (réseau normal)
   }
+  if (url.pathname.startsWith('/_vercel/')) return; // stats Vercel : pas de cache
 
   event.respondWith(
     fetch(event.request)
