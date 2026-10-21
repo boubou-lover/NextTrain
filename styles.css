@@ -957,3 +957,12 @@ footer{margin-top:12px;color:#94a3b8;text-align:center;font-size:13px}
   color:#dc2626;
   font-weight:600;
 }
+
+/* ====== Train à parcours modifié (circule, mais ne dessert pas tous les arrêts) ====== */
+.train.modified{background:#fffaf5;box-shadow:inset 4px 0 0 #ea580c}
+.train.modified:hover{background:#fff4e8}
+.delay.modified-badge{
+  background:#fff7ed;
+  color:#9a3412;
+  border:1px solid #fed7aa;
+}

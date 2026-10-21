@@ -53,6 +53,8 @@
     expandedVehicle: null,
     expandedApiDate: null,
     trainDetailsCache: {},
+    trainsByKey: new Map(), // "vehicle__ddmmyy" -> objet train de la liste (pour re-rendre une ligne)
+    cancelOverrides: new Map(), // "vehicle__ddmmyy" -> {kind,label,hereCanceled,ts} (résultat de l'analyse des arrêts)
     autoRefreshHandle: null,
     isFetching: false,
 
@@ -631,13 +633,29 @@
       const platform = train.platform || "—";
       const delaySec = parseInt(train.delay || 0, 10);
       const delayMin = Math.floor(delaySec / 60);
-      const cancelled = Utils.isCanceledItem(train);
-      // Un train supprimé n'est jamais "à l'heure" : on affiche un badge dédié, bien visible.
-      const delayText = cancelled
-        ? `<div class="delay cancelled-badge">🚫 Supprimé</div>`
-        : delaySec > 0
+
+      // La liste (liveboard) indique si le train est supprimé À CETTE GARE. Un train limité à
+      // un arrêt intermédiaire (ex. Bruxelles → Arlon au lieu de Luxembourg) n'est donc pas
+      // forcément supprimé : l'analyse des arrêts (UI.analyzeCancellation) tranche.
+      const key = `${train.vehicle}__${apiDate}`;
+      state.trainsByKey.set(key, train);
+      const flagged = Utils.isCanceledItem(train);
+      let ov = flagged ? state.cancelOverrides.get(key) : null;
+      if (ov && Date.now() - ov.ts > CONFIG.CACHE_TTL) ov = null;
+      const modified = !!(ov && ov.kind === "partial" && !ov.hereCanceled);
+      const cancelled = flagged && !modified;
+
+      let delayText;
+      if (modified) {
+        delayText = `<div class="delay modified-badge">⚠️ ${Utils.escapeHtml(ov.label)}</div>`;
+      } else if (cancelled) {
+        const txt = ov && ov.kind === "partial" ? "Non desservi ici" : "Supprimé";
+        delayText = `<div class="delay cancelled-badge">🚫 ${txt}</div>`;
+      } else {
+        delayText = delaySec > 0
           ? `<div class="delay delayed">+${delayMin} min</div>`
           : `<div class="delay on-time">À l'heure</div>`;
+      }
       const occupancy = cancelled ? "" : UI.renderOccupancy(train.occupancy);
       const platformHtml = cancelled ? "" : `<div class="platform">Voie: ${Utils.escapeHtml(platform)}</div>`;
 
@@ -648,7 +666,7 @@
         : `<span class="relative-time ${relative.cls}" data-realtime="${realTimestamp}">${relative.text}</span>`;
 
       return `
-        <div class="train ${cancelled ? "cancelled" : ""}" ${cancelled ? 'data-cancelled="1"' : ""} data-vehicle="${Utils.escapeHtml(train.vehicle)}" data-datestr="${apiDate}">
+        <div class="train ${cancelled ? "cancelled" : ""} ${modified ? "modified" : ""}" ${flagged ? 'data-flagged="1"' : ""} ${ov ? 'data-checked="1"' : ""} data-vehicle="${Utils.escapeHtml(train.vehicle)}" data-datestr="${apiDate}">
           <div class="left">
             <div class="train-number">${Utils.escapeHtml(number)} ${occupancy}</div>
             <div class="route">${Utils.escapeHtml(routeText)}</div>
@@ -746,22 +764,83 @@
       `;
     },
 
-    // Si les détails (itinéraire) révèlent une suppression totale que la liste n'indiquait pas,
-    // on met aussi la ligne du train à jour.
-    syncRowCancelled(detailsEl) {
+    // Analyse les arrêts d'un train pour distinguer :
+    //  - "full"    : train supprimé (tous les arrêts annulés, ou drapeau liste sans détail contraire)
+    //  - "partial" : parcours modifié (ex. limité à Arlon, Luxembourg non desservi)
+    //  - "none"    : rien d'annulé
+    // Les arrêts font foi dès qu'ils montrent un mélange d'arrêts desservis / non desservis.
+    analyzeCancellation(details, rowFlagged, currentStation) {
+      const sd = details && details.vehicle && details.vehicle.stops && details.vehicle.stops.stop;
+      const stops = sd ? (Array.isArray(sd) ? sd : [sd]) : [];
+      const flags = stops.map((st) => Utils.isCanceledItem(st));
+      const c = flags.filter(Boolean).length;
+
+      let kind;
+      if (!stops.length) kind = rowFlagged ? "full" : "none";
+      else if (c === stops.length) kind = "full";
+      else if (c > 0) kind = "partial";
+      else kind = rowFlagged ? "full" : "none";
+
+      const info = {
+        kind, stops, flags,
+        canceledStops: stops.filter((_, i) => flags[i]),
+        hereCanceled: false,
+        label: "Parcours modifié",
+        title: "Parcours modifié"
+      };
+      if (kind !== "partial") return info;
+
+      const nm = (st) => Utils.displayStationName(st.station);
+      const firstServed = flags.indexOf(false);
+      const lastServed = flags.lastIndexOf(false);
+      const truncatedEnd = flags.slice(0, lastServed + 1).every((f) => !f);
+      const truncatedStart = flags.slice(firstServed).every((f) => !f);
+      if (truncatedEnd) {
+        info.label = `Limité à ${nm(stops[lastServed])}`;
+        info.title = `Parcours limité à ${nm(stops[lastServed])}`;
+      } else if (truncatedStart) {
+        info.label = `Part de ${nm(stops[firstServed])}`;
+        info.title = `Parcours débutant à ${nm(stops[firstServed])}`;
+      }
+      const hereIdx = stops.findIndex((st) => Utils.normalize(st.station) === Utils.normalize(currentStation));
+      info.hereCanceled = hereIdx >= 0 && flags[hereIdx];
+      return info;
+    },
+
+    // Re-rend la ligne d'un train signalé supprimé par la liste une fois ses arrêts connus.
+    refreshRowFromDetails(detailsEl, details) {
       const row = detailsEl && detailsEl.previousElementSibling;
-      if (!row || !row.classList || !row.classList.contains("train") || row.dataset.cancelled === "1") return;
-      if (!detailsEl.querySelector(".cancel-banner:not(.partial)")) return;
-      row.classList.add("cancelled");
-      row.dataset.cancelled = "1";
-      const t = row.querySelector(".time");
-      if (t) t.classList.add("time-cancelled");
-      const rel = row.querySelector(".relative-time");
-      if (rel) rel.remove();
-      const pf = row.querySelector(".platform");
-      if (pf) pf.remove();
-      const d = row.querySelector(".delay");
-      if (d) { d.className = "delay cancelled-badge"; d.textContent = "🚫 Supprimé"; }
+      if (!row || !row.classList || !row.classList.contains("train") || row.dataset.flagged !== "1") return;
+      const key = `${row.dataset.vehicle}__${row.dataset.datestr}`;
+      const train = state.trainsByKey.get(key);
+      if (!train) return;
+
+      const info = UI.analyzeCancellation(details, true, state.station);
+      const next = { kind: info.kind, label: info.label, hereCanceled: info.hereCanceled, ts: Date.now() };
+      const prev = state.cancelOverrides.get(key) || { kind: "full", label: "", hereCanceled: false };
+      state.cancelOverrides.set(key, next);
+      const same = prev.kind === next.kind && prev.hereCanceled === next.hereCanceled && (next.kind !== "partial" || prev.label === next.label);
+      if (same) return;
+
+      const tmp = document.createElement("div");
+      tmp.innerHTML = UI.renderTrain(train);
+      const newRow = tmp.firstElementChild;
+      if (!newRow) return;
+      if (row.classList.contains("expanded")) newRow.classList.add("expanded");
+      row.replaceWith(newRow);
+    },
+
+    // Pour les trains signalés supprimés dans la liste, charge discrètement leurs arrêts
+    // (mis en cache) afin d'afficher directement le bon statut sans clic.
+    checkCancelledRows() {
+      const rows = Array.from(document.querySelectorAll(".train[data-flagged=\"1\"]:not([data-checked])")).slice(0, 8);
+      rows.forEach((row) => {
+        row.dataset.checked = "1";
+        const detailsEl = row.nextElementSibling;
+        API.getVehicleDetails(row.dataset.vehicle, row.dataset.datestr)
+          .then((d) => UI.refreshRowFromDetails(detailsEl, d))
+          .catch(() => {});
+      });
     },
 
     renderTrainDetails(details, currentStation, opts = {}) {
@@ -775,10 +854,11 @@
         const now = Utils.nowSeconds();
         const lastIdx = stops.length - 1;
 
-        // Suppression : totale (flag du train, ou tous les arrêts annulés) ou partielle.
+        // Suppression totale ou parcours modifié (voir analyzeCancellation).
+        const info = UI.analyzeCancellation(details, !!opts.flagged, currentStation);
         const isStopCanceled = (st) => Utils.isCanceledItem(st);
-        const canceledStops = stops.filter(isStopCanceled);
-        const fullCancel = !!opts.cancelled || (stops.length > 0 && canceledStops.length === stops.length);
+        const canceledStops = info.canceledStops;
+        const fullCancel = info.kind === "full";
 
         if (fullCancel) {
           html += `
@@ -789,15 +869,16 @@
                 <div class="cancel-banner-sub">Ce train ne circule pas. Vérifiez le train suivant ou les perturbations.</div>
               </div>
             </div>`;
-        } else if (canceledStops.length) {
+        } else if (info.kind === "partial") {
           const names = canceledStops.slice(0, 3).map((st) => Utils.escapeHtml(Utils.displayStationName(st.station))).join(", ");
           const more = canceledStops.length > 3 ? `… (+${canceledStops.length - 3})` : "";
+          const here = info.hereCanceled ? ` Ce train ne s'arrête pas à ${Utils.escapeHtml(Utils.displayStationName(currentStation))}.` : "";
           html += `
             <div class="cancel-banner partial" role="status">
               <span class="cancel-banner-icon">⚠️</span>
               <div>
-                <strong>Parcours partiellement supprimé</strong>
-                <div class="cancel-banner-sub">${canceledStops.length} arrêt${canceledStops.length > 1 ? "s" : ""} non desservi${canceledStops.length > 1 ? "s" : ""} : ${names}${more}</div>
+                <strong>${Utils.escapeHtml(info.title)}</strong>
+                <div class="cancel-banner-sub">Le train circule mais ne dessert pas : ${names}${more}.${here}</div>
               </div>
             </div>`;
         }
@@ -955,6 +1036,7 @@
       container.innerHTML += `<div id="loadMoreZone" class="load-more-zone"></div>`;
 
       await UI.restoreExpandedState();
+      UI.checkCancelledRows();
     },
 
     // Charge la suite des trains du jour en interrogeant à nouveau le liveboard,
@@ -1002,6 +1084,7 @@
 
         itemsEl.insertAdjacentHTML("beforeend", fresh.map((t) => UI.renderTrain(t)).join(""));
         if (zone) zone.innerHTML = "";
+        UI.checkCancelledRows();
       } catch (e) {
         console.warn("Erreur loadMoreTrains:", e.message);
         // Pas bloquant : l'utilisateur peut simplement re-scroller pour réessayer.
@@ -1032,8 +1115,8 @@
       // Sert d'abord depuis le cache pour éviter tout flash de chargement à chaque refresh
       const cached = Cache.get(Utils.cacheKey(vehicleId, apiDate));
       if (cached) {
-        detailsEl.innerHTML = UI.renderTrainDetails(cached, state.station, { cancelled: trainEl.dataset.cancelled === "1" });
-        UI.syncRowCancelled(detailsEl);
+        detailsEl.innerHTML = UI.renderTrainDetails(cached, state.station, { flagged: trainEl.dataset.flagged === "1" });
+        UI.refreshRowFromDetails(detailsEl, cached);
         return;
       }
 
@@ -1044,8 +1127,8 @@
         </div>
       `;
       const details = await API.getVehicleDetails(vehicleId, apiDate);
-      detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { cancelled: trainEl.dataset.cancelled === "1" });
-      UI.syncRowCancelled(detailsEl);
+      detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { flagged: trainEl.dataset.flagged === "1" });
+      UI.refreshRowFromDetails(detailsEl, details);
     }
   };
 
@@ -1126,8 +1209,8 @@
       const details = await API.getVehicleDetails(vehicleId, apiDate);
       if (detailsEl) {
         const rowEl = detailsEl.previousElementSibling;
-        detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { cancelled: !!(rowEl && rowEl.dataset && rowEl.dataset.cancelled === "1") });
-        UI.syncRowCancelled(detailsEl);
+        detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { flagged: !!(rowEl && rowEl.dataset && rowEl.dataset.flagged === "1") });
+        UI.refreshRowFromDetails(detailsEl, details);
       }
     },
 
