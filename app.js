@@ -649,7 +649,7 @@
       if (modified) {
         delayText = `<div class="delay modified-badge">⚠️ ${Utils.escapeHtml(ov.label)}</div>`;
       } else if (cancelled) {
-        const txt = ov && ov.kind === "partial" ? "Non desservi ici" : "Supprimé";
+        const txt = ov && ov.kind === "partial" ? (ov.hereText || "Non desservi ici") : "Supprimé";
         delayText = `<div class="delay cancelled-badge">🚫 ${txt}</div>`;
       } else {
         delayText = delaySec > 0
@@ -769,22 +769,43 @@
     //  - "partial" : parcours modifié (ex. limité à Arlon, Luxembourg non desservi)
     //  - "none"    : rien d'annulé
     // Les arrêts font foi dès qu'ils montrent un mélange d'arrêts desservis / non desservis.
-    analyzeCancellation(details, rowFlagged, currentStation) {
+    analyzeCancellation(details, rowFlagged, currentStation, mode) {
       const sd = details && details.vehicle && details.vehicle.stops && details.vehicle.stops.stop;
       const stops = sd ? (Array.isArray(sd) ? sd : [sd]) : [];
-      const flags = stops.map((st) => Utils.isCanceledItem(st));
+      const n = stops.length;
+      const has = (v) => v !== undefined && v !== null;
+
+      // Départ / arrivée sont évalués séparément : sur un train limité à Arlon, le DÉPART d'Arlon
+      // est supprimé mais son ARRIVÉE ne l'est pas — Arlon reste donc un arrêt desservi (terminus).
+      const depC = stops.map((st) => Utils.isFlagged(has(st.departureCanceled) ? st.departureCanceled : st.canceled));
+      const arrKnown = stops.map((st) => has(st.arrivalCanceled));
+      const arrC = stops.map((st, i) => (arrKnown[i] ? Utils.isFlagged(st.arrivalCanceled) : depC[i]));
+
+      // Si l'API ne fournit pas arrivalCanceled, on déduit le nouveau terminus : c'est le premier
+      // arrêt du bloc final d'arrêts à départ supprimé, à condition que le train quitte l'arrêt précédent.
+      let tailStart = n;
+      while (tailStart > 0 && (tailStart - 1 === n - 1 || depC[tailStart - 1])) tailStart--;
+      if (tailStart > 0 && tailStart < n && !arrKnown[tailStart] && !depC[tailStart - 1]) {
+        arrC[tailStart] = false;
+      }
+
+      // Arrêt totalement non desservi = ni arrivée ni départ (1er arrêt : pas d'arrivée ; dernier : pas de départ)
+      const flags = stops.map((_, i) => (i === 0 || arrC[i]) && (i === n - 1 || depC[i]));
       const c = flags.filter(Boolean).length;
+      const anyCancel = depC.some(Boolean) || arrC.some(Boolean);
 
       let kind;
-      if (!stops.length) kind = rowFlagged ? "full" : "none";
-      else if (c === stops.length) kind = "full";
-      else if (c > 0) kind = "partial";
+      if (!n) kind = rowFlagged ? "full" : "none";
+      else if (c === n) kind = "full";
+      else if (c > 0 || anyCancel) kind = "partial";
       else kind = rowFlagged ? "full" : "none";
 
       const info = {
-        kind, stops, flags,
+        kind, stops, flags, depC, arrC,
         canceledStops: stops.filter((_, i) => flags[i]),
+        endIdx: -1,
         hereCanceled: false,
+        hereText: "Non desservi ici",
         label: "Parcours modifié",
         title: "Parcours modifié"
       };
@@ -793,17 +814,24 @@
       const nm = (st) => Utils.displayStationName(st.station);
       const firstServed = flags.indexOf(false);
       const lastServed = flags.lastIndexOf(false);
-      const truncatedEnd = flags.slice(0, lastServed + 1).every((f) => !f);
-      const truncatedStart = flags.slice(firstServed).every((f) => !f);
+      if (firstServed < 0) return info;
+      const truncatedEnd = flags.slice(0, lastServed + 1).every((f) => !f) && lastServed < n - 1;
+      const truncatedStart = flags.slice(firstServed).every((f) => !f) && firstServed > 0;
       if (truncatedEnd) {
+        info.endIdx = lastServed;
         info.label = `Limité à ${nm(stops[lastServed])}`;
         info.title = `Parcours limité à ${nm(stops[lastServed])}`;
       } else if (truncatedStart) {
         info.label = `Part de ${nm(stops[firstServed])}`;
         info.title = `Parcours débutant à ${nm(stops[firstServed])}`;
       }
+
+      // Statut à la gare consultée, selon l'onglet : départs → départ supprimé ? ; arrivées → arrivée supprimée ?
       const hereIdx = stops.findIndex((st) => Utils.normalize(st.station) === Utils.normalize(currentStation));
-      info.hereCanceled = hereIdx >= 0 && flags[hereIdx];
+      if (hereIdx >= 0) {
+        info.hereCanceled = mode === "arrival" ? arrC[hereIdx] : depC[hereIdx];
+        if (hereIdx === info.endIdx && mode !== "arrival") info.hereText = "Terminus ici";
+      }
       return info;
     },
 
@@ -815,11 +843,11 @@
       const train = state.trainsByKey.get(key);
       if (!train) return;
 
-      const info = UI.analyzeCancellation(details, true, state.station);
-      const next = { kind: info.kind, label: info.label, hereCanceled: info.hereCanceled, ts: Date.now() };
-      const prev = state.cancelOverrides.get(key) || { kind: "full", label: "", hereCanceled: false };
+      const info = UI.analyzeCancellation(details, true, state.station, state.mode);
+      const next = { kind: info.kind, label: info.label, hereCanceled: info.hereCanceled, hereText: info.hereText, ts: Date.now() };
+      const prev = state.cancelOverrides.get(key) || { kind: "full", label: "", hereCanceled: false, hereText: undefined };
       state.cancelOverrides.set(key, next);
-      const same = prev.kind === next.kind && prev.hereCanceled === next.hereCanceled && (next.kind !== "partial" || prev.label === next.label);
+      const same = prev.kind === next.kind && prev.hereCanceled === next.hereCanceled && prev.hereText === next.hereText && (next.kind !== "partial" || prev.label === next.label);
       if (same) return;
 
       const tmp = document.createElement("div");
@@ -855,7 +883,7 @@
         const lastIdx = stops.length - 1;
 
         // Suppression totale ou parcours modifié (voir analyzeCancellation).
-        const info = UI.analyzeCancellation(details, !!opts.flagged, currentStation);
+        const info = UI.analyzeCancellation(details, !!opts.flagged, currentStation, state.mode);
         const isStopCanceled = (st) => Utils.isCanceledItem(st);
         const canceledStops = info.canceledStops;
         const fullCancel = info.kind === "full";
@@ -911,7 +939,7 @@
           const isCurrentStation = Utils.normalize(stop.station) === Utils.normalize(currentStation);
           // "Passé" = arrêt déjà quitté par le train (hors terminus, géré séparément ci-dessous)
           const isPassed = !fullCancel && i <= lastLeftIndex && i !== lastIdx;
-          const stopCanceled = isStopCanceled(stop);
+          const stopCanceled = !!info.flags[i];
           const isCanceled = fullCancel || stopCanceled;
 
           const isWaitingHere = waitingAtOrigin && i === 0;
@@ -936,7 +964,7 @@
               <div class="metro-info">
                 <div class="metro-station">
                   <a href="#" class="goto-station" data-station="${Utils.escapeHtml(stop.station)}">${Utils.escapeHtml(Utils.displayStationName(stop.station))}</a>
-                  ${!fullCancel && stopCanceled ? ' <span class="stop-canceled">Supprimé</span>' : ""}${badge}${platform}
+                  ${!fullCancel && stopCanceled ? ' <span class="stop-canceled">Supprimé</span>' : ""}${!fullCancel && i === info.endIdx ? ' <span class="stop-terminus">Terminus modifié</span>' : ""}${badge}${platform}
                 </div>
                 <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
               </div>
