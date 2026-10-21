@@ -1,4 +1,4 @@
 {
-  "version": "1.4.0",
-  "notes": "Affichage amélioré des trains supprimés (badge, heure barrée, bandeau dans les détails, suppression partielle)"
+  "version": "1.4.1",
+  "notes": "Trains supprimés / parcours modifiés : analyse arrivée+départ, terminus modifié, encart de diagnostic"
 }

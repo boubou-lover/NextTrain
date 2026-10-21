@@ -978,3 +978,7 @@ footer{margin-top:12px;color:#94a3b8;text-align:center;font-size:13px}
   font-weight:600;
   margin-left:6px;
 }
+
+.debug-raw{margin-top:10px;font-size:11px;color:#64748b}
+.debug-raw summary{cursor:pointer}
+.debug-raw pre{margin-top:6px;padding:8px;background:#f1f5f9;border-radius:8px;overflow-x:auto;white-space:pre;font-size:11px;line-height:1.5}

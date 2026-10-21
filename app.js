@@ -984,6 +984,15 @@
         });
 
         html += `</div>`;
+
+        // Diagnostic : valeurs brutes d'annulation renvoyées par iRail (uniquement si quelque chose est annulé)
+        if (info.kind !== "none") {
+          const val = (v) => (v === undefined || v === null ? "—" : String(v));
+          const rows = stops.map((st, i) =>
+            `${Utils.escapeHtml(Utils.displayStationName(st.station)).padEnd(22)} canceled=${val(st.canceled)}  dep=${val(st.departureCanceled)}  arr=${val(st.arrivalCanceled)}  → ${info.flags[i] ? "NON desservi" : "desservi"}`
+          ).join("\n");
+          html += `<details class="debug-raw"><summary>🔍 Diagnostic (valeurs iRail)</summary><pre>${rows}</pre></details>`;
+        }
       } else {
         html += `<div class="info" style="margin:16px 0">ℹ️ Les détails des arrêts ne sont pas disponibles pour ce train.</div>`;
       }
