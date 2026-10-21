@@ -1,4 +1,4 @@
 {
-  "version": "1.3.0",
-  "notes": "Ajout du fichier version.json manquant (corrige l'échec silencieux d'installation du Service Worker)"
+  "version": "1.4.0",
+  "notes": "Affichage amélioré des trains supprimés (badge, heure barrée, bandeau dans les détails, suppression partielle)"
 }

@@ -148,7 +148,8 @@ button[disabled], .btn[disabled]{
 .list{padding:8px}
 .train{display:flex;justify-content:space-between;align-items:center;padding:14px 12px;border-radius:12px;gap:10px;cursor:pointer;transition:background .18s,transform .18s}
 .train:hover{background:#f8fafc;transform:translateY(-1px)}
-.train.cancelled{opacity:.5;background:#fdf5f5}
+.train.cancelled{background:#fef6f6;box-shadow:inset 4px 0 0 #dc2626}
+.train.cancelled:hover{background:#fdeeee}
 
 .left{flex:1}
 .train-number{font-weight:700;color:#1e3a8a}
@@ -887,4 +888,72 @@ footer{margin-top:12px;color:#94a3b8;text-align:center;font-size:13px}
 @keyframes relativePulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.65; }
+}
+
+
+/* ====== Train supprimé ====== */
+.train.cancelled .train-number,
+.train.cancelled .route{opacity:.6}
+.train.cancelled .train-number{color:#7f1d1d}
+.time.time-cancelled{
+  color:#94a3b8;
+  font-weight:600;
+  text-decoration:line-through;
+  text-decoration-color:#dc2626;
+  text-decoration-thickness:2px;
+}
+.delay.cancelled-badge{
+  background:#dc2626;
+  color:#fff;
+  border:1px solid #b91c1c;
+  letter-spacing:.2px;
+}
+.train.cancelled .date{opacity:.7}
+
+.cancel-banner{
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+  background:#fef2f2;
+  border:1px solid #fecaca;
+  border-left:4px solid #dc2626;
+  color:#7f1d1d;
+  padding:10px 12px;
+  border-radius:10px;
+  margin-bottom:12px;
+  font-size:13px;
+}
+.cancel-banner strong{font-size:14px}
+.cancel-banner-icon{font-size:18px;line-height:1.2}
+.cancel-banner-sub{margin-top:2px;color:#991b1b;font-size:12px;line-height:1.4}
+.cancel-banner.partial{
+  background:#fff7ed;
+  border-color:#fed7aa;
+  border-left-color:#ea580c;
+  color:#7c2d12;
+}
+.cancel-banner.partial .cancel-banner-sub{color:#9a3412}
+
+/* Arrêt supprimé (le train ne s'y arrête pas) : gare barrée en rouge, badge lisible */
+.metro-stop.canceled{opacity:1;text-decoration:none}
+.metro-stop.canceled .metro-station a,
+.metro-stop.canceled .metro-station a:hover{
+  color:#dc2626;
+  font-weight:600;
+  text-decoration:line-through;
+  text-decoration-color:#dc2626;
+  text-decoration-thickness:2px;
+}
+.metro-stop.canceled .metro-time{
+  color:#f87171;
+  text-decoration:line-through;
+  text-decoration-color:#dc2626;
+}
+.metro-stop.canceled .metro-dot{border-color:#fca5a5;background:#fef2f2;box-shadow:none}
+.stop-canceled{
+  display:inline-block;
+  background:#fef2f2;
+  border:1px solid #fecaca;
+  color:#dc2626;
+  font-weight:600;
 }

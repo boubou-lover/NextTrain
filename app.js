@@ -622,9 +622,15 @@
       const platform = train.platform || "—";
       const delaySec = parseInt(train.delay || 0, 10);
       const delayMin = Math.floor(delaySec / 60);
-      const delayText = delaySec > 0 ? `<div class="delay delayed">+${delayMin} min</div>` : `<div class="delay on-time">À l'heure</div>`;
       const cancelled = train.canceled === "1" || train.canceled === 1 || train.canceled === true;
-      const occupancy = UI.renderOccupancy(train.occupancy);
+      // Un train supprimé n'est jamais "à l'heure" : on affiche un badge dédié, bien visible.
+      const delayText = cancelled
+        ? `<div class="delay cancelled-badge">🚫 Supprimé</div>`
+        : delaySec > 0
+          ? `<div class="delay delayed">+${delayMin} min</div>`
+          : `<div class="delay on-time">À l'heure</div>`;
+      const occupancy = cancelled ? "" : UI.renderOccupancy(train.occupancy);
+      const platformHtml = cancelled ? "" : `<div class="platform">Voie: ${Utils.escapeHtml(platform)}</div>`;
 
       const realTimestamp = Number(train.time) + delaySec;
       const relative = Utils.formatRelative(realTimestamp);
@@ -633,14 +639,14 @@
         : `<span class="relative-time ${relative.cls}" data-realtime="${realTimestamp}">${relative.text}</span>`;
 
       return `
-        <div class="train ${cancelled ? "cancelled" : ""}" data-vehicle="${Utils.escapeHtml(train.vehicle)}" data-datestr="${apiDate}">
+        <div class="train ${cancelled ? "cancelled" : ""}" ${cancelled ? 'data-cancelled="1"' : ""} data-vehicle="${Utils.escapeHtml(train.vehicle)}" data-datestr="${apiDate}">
           <div class="left">
             <div class="train-number">${Utils.escapeHtml(number)} ${occupancy}</div>
             <div class="route">${Utils.escapeHtml(routeText)}</div>
-            <div class="platform">Voie: ${Utils.escapeHtml(platform)}</div>
+            ${platformHtml}
           </div>
           <div style="text-align:right">
-            <div class="time">${time}</div>
+            <div class="time ${cancelled ? "time-cancelled" : ""}">${time}</div>
             ${relativeHtml}
             <div class="date">${displayDate}</div>
             ${delayText}
@@ -731,7 +737,7 @@
       `;
     },
 
-    renderTrainDetails(details, currentStation) {
+    renderTrainDetails(details, currentStation, opts = {}) {
       let html = "";
 
       const vehicle = details && details.vehicle;
@@ -741,6 +747,33 @@
         const stops = Array.isArray(stopsData) ? stopsData : [stopsData];
         const now = Utils.nowSeconds();
         const lastIdx = stops.length - 1;
+
+        // Suppression : totale (flag du train, ou tous les arrêts annulés) ou partielle.
+        const isStopCanceled = (st) => st.canceled === "1" || st.canceled === 1 || st.canceled === true;
+        const canceledStops = stops.filter(isStopCanceled);
+        const fullCancel = !!opts.cancelled || (stops.length > 0 && canceledStops.length === stops.length);
+
+        if (fullCancel) {
+          html += `
+            <div class="cancel-banner" role="status">
+              <span class="cancel-banner-icon">🚫</span>
+              <div>
+                <strong>Train supprimé</strong>
+                <div class="cancel-banner-sub">Ce train ne circule pas. Vérifiez le train suivant ou les perturbations.</div>
+              </div>
+            </div>`;
+        } else if (canceledStops.length) {
+          const names = canceledStops.slice(0, 3).map((st) => Utils.escapeHtml(Utils.displayStationName(st.station))).join(", ");
+          const more = canceledStops.length > 3 ? `… (+${canceledStops.length - 3})` : "";
+          html += `
+            <div class="cancel-banner partial" role="status">
+              <span class="cancel-banner-icon">⚠️</span>
+              <div>
+                <strong>Parcours partiellement supprimé</strong>
+                <div class="cancel-banner-sub">${canceledStops.length} arrêt${canceledStops.length > 1 ? "s" : ""} non desservi${canceledStops.length > 1 ? "s" : ""} : ${names}${more}</div>
+              </div>
+            </div>`;
+        }
 
         // Détermine si le train a quitté un arrêt donné.
         // On utilise le champ temps réel "left" fourni par iRail quand il existe
@@ -758,18 +791,20 @@
         let lastLeftIndex = -1;
         stops.forEach((stop, i) => { if (hasLeftStop(stop, i)) lastLeftIndex = i; });
 
-        const arrivedAtTerminus = lastLeftIndex === lastIdx;
-        const waitingAtOrigin = lastLeftIndex === -1;
+        // Train supprimé : aucun suivi temps réel (pas de "en gare", "en route", etc.)
+        const arrivedAtTerminus = !fullCancel && lastLeftIndex === lastIdx;
+        const waitingAtOrigin = !fullCancel && lastLeftIndex === -1;
         // Index de l'arrêt que le train vient de quitter, s'il est en route vers le suivant
-        const inTransitAfterIndex = (!arrivedAtTerminus && !waitingAtOrigin) ? lastLeftIndex : -1;
+        const inTransitAfterIndex = (!fullCancel && !arrivedAtTerminus && !waitingAtOrigin) ? lastLeftIndex : -1;
 
         html += `<h4>Itinéraire</h4><div class="metro-line">`;
 
         stops.forEach((stop, i) => {
           const isCurrentStation = Utils.normalize(stop.station) === Utils.normalize(currentStation);
           // "Passé" = arrêt déjà quitté par le train (hors terminus, géré séparément ci-dessous)
-          const isPassed = i <= lastLeftIndex && i !== lastIdx;
-          const isCanceled = stop.canceled === "1" || stop.canceled === 1;
+          const isPassed = !fullCancel && i <= lastLeftIndex && i !== lastIdx;
+          const stopCanceled = isStopCanceled(stop);
+          const isCanceled = fullCancel || stopCanceled;
 
           const isWaitingHere = waitingAtOrigin && i === 0;
           const isArrivedHere = arrivedAtTerminus && i === lastIdx;
@@ -779,8 +814,8 @@
           const delay = parseInt(stop.delay || 0, 10);
           const delayMin = Math.floor(delay / 60);
           const hasDelay = !isCanceled && delay > 0;
-          const delayText = delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : "";
-          const platform = stop.platform ? ` <span class="stop-platform">Voie ${Utils.escapeHtml(stop.platform)}</span>` : "";
+          const delayText = !isCanceled && delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : "";
+          const platform = !isCanceled && stop.platform ? ` <span class="stop-platform">Voie ${Utils.escapeHtml(stop.platform)}</span>` : "";
 
           let badge = "";
           if (!isCanceled && isWaitingHere) badge += ` <span class="train-here">🚉 En gare</span>`;
@@ -793,7 +828,7 @@
               <div class="metro-info">
                 <div class="metro-station">
                   <a href="#" class="goto-station" data-station="${Utils.escapeHtml(stop.station)}">${Utils.escapeHtml(Utils.displayStationName(stop.station))}</a>
-                  ${isCanceled ? ' <span class="stop-canceled">Annulé</span>' : ""}${badge}${platform}
+                  ${!fullCancel && stopCanceled ? ' <span class="stop-canceled">Supprimé</span>' : ""}${badge}${platform}
                 </div>
                 <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
               </div>
@@ -970,7 +1005,7 @@
       // Sert d'abord depuis le cache pour éviter tout flash de chargement à chaque refresh
       const cached = Cache.get(Utils.cacheKey(vehicleId, apiDate));
       if (cached) {
-        detailsEl.innerHTML = UI.renderTrainDetails(cached, state.station);
+        detailsEl.innerHTML = UI.renderTrainDetails(cached, state.station, { cancelled: trainEl.dataset.cancelled === "1" });
         return;
       }
 
@@ -981,7 +1016,7 @@
         </div>
       `;
       const details = await API.getVehicleDetails(vehicleId, apiDate);
-      detailsEl.innerHTML = UI.renderTrainDetails(details, state.station);
+      detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { cancelled: trainEl.dataset.cancelled === "1" });
     }
   };
 
@@ -1060,7 +1095,10 @@
       }
 
       const details = await API.getVehicleDetails(vehicleId, apiDate);
-      if (detailsEl) detailsEl.innerHTML = UI.renderTrainDetails(details, state.station);
+      if (detailsEl) {
+        const rowEl = detailsEl.previousElementSibling;
+        detailsEl.innerHTML = UI.renderTrainDetails(details, state.station, { cancelled: !!(rowEl && rowEl.dataset && rowEl.dataset.cancelled === "1") });
+      }
     },
 
     handleStationSearch: Utils.debounce((e) => {
