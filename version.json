@@ -1,4 +1,4 @@
 {
-  "version": "1.4.1",
-  "notes": "Trains supprimés / parcours modifiés : analyse arrivée+départ, terminus modifié, encart de diagnostic"
+  "version": "1.5.0",
+  "notes": "Affluence en 3 pictos (liste + détail par arrêt), alerte de changement de voie (iRail + détection entre rafraîchissements)"
 }

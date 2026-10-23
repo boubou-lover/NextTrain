@@ -55,6 +55,8 @@
     trainDetailsCache: {},
     trainsByKey: new Map(), // "vehicle__ddmmyy" -> objet train de la liste (pour re-rendre une ligne)
     cancelOverrides: new Map(), // "vehicle__ddmmyy" -> {kind,label,hereCanceled,ts} (résultat de l'analyse des arrêts)
+    platformMemory: new Map(), // "vehicle__ddmmyy__gare__mode" -> dernière voie vue (détection de changement entre deux rafraîchissements)
+    platformChanges: new Map(), // même clé -> {from,to} : changement de voie détecté (conservé tant que la voie ne rechange pas)
     autoRefreshHandle: null,
     isFetching: false,
 
@@ -556,16 +558,38 @@
       }
     },
 
-    renderOccupancy(occupancy) {
-      if (!occupancy || !occupancy.name || occupancy.name === "unknown") return "";
-      const level = occupancy.name;
-      const css = level === "high" ? "occ-high" : level === "medium" ? "occ-medium" : "";
-      const pct = level === "high" ? 95 : level === "medium" ? 60 : 25;
-      return `
-        <span class="occupancy ${css}" title="${level}">
-          <span class="occ-bar"><span class="occ-fill" style="width:${pct}%"></span></span>
-        </span>
-      `;
+    // Affluence : 3 pictos (1 = faible, 2 = modérée, 3 = forte), libellé en français.
+    // withLabel = true affiche aussi le texte (utilisé dans le détail du train).
+    renderOccupancy(occupancy, withLabel = false) {
+      const raw = occupancy && occupancy.name ? String(occupancy.name).toLowerCase() : "";
+      const levels = { low: 1, medium: 2, high: 3 };
+      const labels = { low: "Affluence faible", medium: "Affluence modérée", high: "Affluence forte" };
+      const n = levels[raw];
+      if (!n) return "";
+      const people = [1, 2, 3].map((i) => `<span class="occ-p ${i <= n ? "on" : ""}">●</span>`).join("");
+      const label = labels[raw];
+      return `<span class="occupancy occ-${raw}" role="img" aria-label="${label}" title="${label}">${people}${withLabel ? `<span class="occ-label">${label}</span>` : ""}</span>`;
+    },
+
+    // Suivi des changements de voie. Deux signaux :
+    //  - iRail : platforminfo.normal === "0" -> la voie diffère de la voie prévue
+    //  - nous : la voie a changé entre deux rafraîchissements de la liste
+    trackPlatform(train, key) {
+      const current = train && train.platform ? String(train.platform) : "";
+      const mKey = `${key}__${state.station}__${state.mode}`;
+      const apiChanged = !!(train && train.platforminfo && String(train.platforminfo.normal) === "0");
+      const valid = current && current !== "?" && current !== "—";
+
+      if (valid) {
+        const prev = state.platformMemory.get(mKey);
+        if (prev && prev !== current) state.platformChanges.set(mKey, { from: prev, to: current });
+        state.platformMemory.set(mKey, current);
+      }
+
+      const rec = state.platformChanges.get(mKey);
+      // Un changement mémorisé n'est valable que tant que la voie affichée est celle du changement.
+      const seen = rec && rec.to === current ? rec : null;
+      return { changed: apiChanged || !!seen, from: seen ? seen.from : null };
     },
 
     // Robust destination/origin text
@@ -657,7 +681,13 @@
           : `<div class="delay on-time">À l'heure</div>`;
       }
       const occupancy = cancelled ? "" : UI.renderOccupancy(train.occupancy);
-      const platformHtml = cancelled ? "" : `<div class="platform">Voie: ${Utils.escapeHtml(platform)}</div>`;
+      let platformHtml = "";
+      if (!cancelled) {
+        const pc = UI.trackPlatform(train, key);
+        platformHtml = pc.changed
+          ? `<div class="platform platform-changed" role="status" title="Changement de voie">⚠️ Voie: ${Utils.escapeHtml(platform)}${pc.from ? ` <span class="platform-was">(était ${Utils.escapeHtml(pc.from)})</span>` : ` <span class="platform-was">modifiée</span>`}</div>`
+          : `<div class="platform">Voie: ${Utils.escapeHtml(platform)}</div>`;
+      }
 
       const realTimestamp = Number(train.time) + delaySec;
       const relative = Utils.formatRelative(realTimestamp);
@@ -951,7 +981,9 @@
           const delayMin = Math.floor(delay / 60);
           const hasDelay = !isCanceled && delay > 0;
           const delayText = !isCanceled && delay > 0 ? ` <span class="stop-delay">+${delayMin}min</span>` : "";
-          const platform = !isCanceled && stop.platform ? ` <span class="stop-platform">Voie ${Utils.escapeHtml(stop.platform)}</span>` : "";
+          const stopPlatChanged = !!(stop.platforminfo && String(stop.platforminfo.normal) === "0");
+          const platform = !isCanceled && stop.platform ? ` <span class="stop-platform ${stopPlatChanged ? "stop-platform-changed" : ""}">${stopPlatChanged ? "⚠️ " : ""}Voie ${Utils.escapeHtml(stop.platform)}${stopPlatChanged ? " (modifiée)" : ""}</span>` : "";
+          const stopOcc = !isCanceled && !(i === lastIdx) ? UI.renderOccupancy(stop.occupancy, true) : "";
 
           let badge = "";
           if (!isCanceled && isWaitingHere) badge += ` <span class="train-here">🚉 En gare</span>`;
@@ -966,7 +998,7 @@
                   <a href="#" class="goto-station" data-station="${Utils.escapeHtml(stop.station)}">${Utils.escapeHtml(Utils.displayStationName(stop.station))}</a>
                   ${!fullCancel && stopCanceled ? ' <span class="stop-canceled">Supprimé</span>' : ""}${!fullCancel && i === info.endIdx ? ' <span class="stop-terminus">Terminus modifié</span>' : ""}${badge}${platform}
                 </div>
-                <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}</div>
+                <div class="metro-time">${Utils.formatTime(stop.time)}${delayText}${stopOcc}</div>
               </div>
             </div>
           `;

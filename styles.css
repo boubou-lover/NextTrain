@@ -181,11 +181,31 @@ button[disabled], .btn[disabled]{
 .delay.on-time{background:#e6f7ee;color:#15803d;border:1px solid #bbf0d3}
 .delay.delayed{background:#fdeded;color:#b91c1c;border:1px solid #f5c2c2}
 
-.occupancy {display:inline-flex;align-items:center;gap:6px;margin-left:8px}
-.occ-bar{width:56px;height:7px;border-radius:6px;background:#eef2f7;overflow:hidden}
-.occ-fill{height:100%;background:#34d399;}
-.occ-high .occ-fill{background:#f47272}
-.occ-medium .occ-fill{background:#fbc94a}
+/* ---------- Affluence (3 pictos) ---------- */
+.occupancy{display:inline-flex;align-items:center;gap:1px;margin-left:8px;vertical-align:middle;line-height:1}
+.occ-p{font-size:9px;color:#d5dbe5}
+.occ-low .occ-p.on{color:#34d399}
+.occ-medium .occ-p.on{color:#fbc94a}
+.occ-high .occ-p.on{color:#f47272}
+.occ-label{margin-left:6px;font-size:11px;font-weight:600;color:#64748b}
+.metro-time .occupancy{margin-left:10px}
+
+/* ---------- Changement de voie ---------- */
+.platform.platform-changed{
+  background:#fee2e2;
+  color:#991b1b;
+  border-color:#fca5a5;
+  animation:platformPulse 1.6s ease-in-out 3;
+}
+.platform-was{font-weight:500;font-size:12px;opacity:.85}
+.stop-platform.stop-platform-changed{background:#fee2e2;color:#991b1b;font-weight:700}
+@keyframes platformPulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}
+  50%{box-shadow:0 0 0 4px rgba(220,38,38,.22)}
+}
+@media (prefers-reduced-motion: reduce){
+  .platform.platform-changed{animation:none}
+}
 
 /* ---------- Details (collapsible) ---------- */
 .details{
