@@ -15,6 +15,42 @@
   <link rel="icon" href="icon-192.png">
   
   <link rel="stylesheet" href="styles.css" />
+
+  <script>
+    // Thème clair / sombre : choix manuel mémorisé (bouton 🌙/☀️), sinon réglage du système.
+    // Appliqué avant l'affichage de la page pour éviter tout flash blanc.
+    (function () {
+      var KEY = "nt_theme";
+      var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+      function stored() {
+        try { var v = localStorage.getItem(KEY); return v === "dark" || v === "light" ? v : null; } catch (e) { return null; }
+      }
+      function current() { return stored() || (mq && mq.matches ? "dark" : "light"); }
+      function apply() {
+        var t = current();
+        document.documentElement.setAttribute("data-theme", t);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", t === "dark" ? "#0f1a33" : "#1e3a8a");
+        var btn = document.getElementById("themeBtn");
+        if (btn) {
+          var label = t === "dark" ? "Passer en thème clair" : "Passer en thème sombre";
+          btn.textContent = t === "dark" ? "☀️" : "🌙";
+          btn.title = label;
+          btn.setAttribute("aria-label", label);
+        }
+      }
+      apply();
+      if (mq && mq.addEventListener) mq.addEventListener("change", apply);
+      document.addEventListener("DOMContentLoaded", function () {
+        apply();
+        var btn = document.getElementById("themeBtn");
+        if (btn) btn.addEventListener("click", function () {
+          try { localStorage.setItem(KEY, current() === "dark" ? "light" : "dark"); } catch (e) {}
+          apply();
+        });
+      });
+    })();
+  </script>
 </head>
 <body>
   <div id="app">
@@ -22,6 +58,7 @@
      <div class="title">
         <img src="icon-192.png" alt="Logo NextTrain" class="app-logo"> <h1>NextTrain</h1>
         <div id="appVersion" style="margin-left:auto; font-size:12px; opacity:.9"></div>
+        <button id="themeBtn" type="button" class="btn" title="Changer de thème" aria-label="Changer de thème">🌙</button>
       </div>
 
       <div class="station-row">

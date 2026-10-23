@@ -1002,3 +1002,119 @@ footer{margin-top:12px;color:#94a3b8;text-align:center;font-size:13px}
 .debug-raw{margin-top:10px;font-size:11px;color:#64748b}
 .debug-raw summary{cursor:pointer}
 .debug-raw pre{margin-top:6px;padding:8px;background:#f1f5f9;border-radius:8px;overflow-x:auto;white-space:pre;font-size:11px;line-height:1.5}
+
+
+/* ======================================================================
+   THÈME SOMBRE  (activé via <html data-theme="dark">, voir index.html)
+   ====================================================================== */
+#themeBtn{
+  padding:6px 10px;font-size:16px;line-height:1;
+  background:rgba(255,255,255,0.15);color:#fff;
+  border:1px solid rgba(255,255,255,0.25);box-shadow:none;
+}
+#themeBtn:hover{background:rgba(255,255,255,0.28);box-shadow:none}
+
+:root[data-theme="dark"]{color-scheme:dark}
+[data-theme="dark"] body{background:linear-gradient(135deg,#0b1220 0%,#0f172a 100%);color:#e2e8f0}
+
+/* En-tête */
+[data-theme="dark"] .card{background:linear-gradient(135deg,#1e3566 0%,#2a4684 100%);box-shadow:0 4px 18px rgba(0,0,0,0.45)}
+[data-theme="dark"] .controls .btn{background:#1e293b;color:#cbd5e1;border-color:rgba(255,255,255,0.14);box-shadow:0 2px 6px rgba(0,0,0,0.3)}
+[data-theme="dark"] .controls .btn:hover{background:#273449}
+[data-theme="dark"] .controls .favBtn.active{background:#3a2f0b;color:#fde68a;border-color:#5c4a12}
+[data-theme="dark"] .search{background:#1e293b;color:#e2e8f0}
+[data-theme="dark"] .search::placeholder{color:#94a3b8}
+[data-theme="dark"] .search-btn{color:#93b4ef}
+[data-theme="dark"] .search-btn:hover{background:rgba(147,180,239,0.15)}
+[data-theme="dark"] .tab{background:rgba(255,255,255,0.08)}
+[data-theme="dark"] .tab.active{background:#1e293b;color:#e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.35)}
+
+/* Liste des trains */
+[data-theme="dark"] .panel{background:#111827;box-shadow:0 4px 20px rgba(0,0,0,0.35)}
+[data-theme="dark"] .train:hover{background:#1a2333}
+[data-theme="dark"] .train.cancelled{background:#2a1517}
+[data-theme="dark"] .train.cancelled:hover{background:#331a1d}
+[data-theme="dark"] .train.modified{background:#2a1f14}
+[data-theme="dark"] .train.modified:hover{background:#33261a}
+[data-theme="dark"] .train-number{color:#93b4ef}
+[data-theme="dark"] .train.cancelled .train-number{color:#fca5a5}
+[data-theme="dark"] .route{color:#94a3b8}
+[data-theme="dark"] .time{color:#f1f5f9}
+[data-theme="dark"] .time.time-cancelled{color:#64748b}
+[data-theme="dark"] .train .date{color:#64748b}
+[data-theme="dark"] .platform{color:#fde68a;background:#3a2f0b;border-color:#5c4a12}
+[data-theme="dark"] .platform.platform-changed{background:#4c1d1d;color:#fecaca;border-color:#b91c1c}
+[data-theme="dark"] .stop-platform{background:#16293f;color:#7dd3fc;border-color:#1e3a5f}
+[data-theme="dark"] .stop-platform.stop-platform-changed{background:#4c1d1d;color:#fecaca;border-color:#b91c1c}
+[data-theme="dark"] .delay.on-time{background:#0f2e22;color:#6ee7b7;border-color:#14532d}
+[data-theme="dark"] .delay.delayed{background:#3b1519;color:#fca5a5;border-color:#7f1d1d}
+[data-theme="dark"] .delay.modified-badge{background:#33200f;color:#fdba74;border-color:#7c2d12}
+[data-theme="dark"] .relative-time.relative-normal{color:#94a3b8;background:#1e293b}
+[data-theme="dark"] .relative-time.relative-soon{color:#fdba74;background:#33200f}
+[data-theme="dark"] .relative-time.relative-past{color:#64748b;background:#151e2e}
+[data-theme="dark"] .occ-p{color:#334155}
+[data-theme="dark"] .occ-low .occ-p.on{color:#34d399}
+[data-theme="dark"] .occ-medium .occ-p.on{color:#fbc94a}
+[data-theme="dark"] .occ-high .occ-p.on{color:#f47272}
+[data-theme="dark"] .occ-label{color:#94a3b8}
+
+/* Détail du train / itinéraire */
+[data-theme="dark"] .details{background:#0f1726}
+[data-theme="dark"] .train.expanded + .details{border-top-color:#1f2937}
+[data-theme="dark"] .details h4{color:#94a3b8}
+[data-theme="dark"] .metro-stop::before{background:#2b4a85}
+[data-theme="dark"] .metro-stop.has-delay::before{background:#7f3a3a}
+[data-theme="dark"] .metro-stop.passed::before{background:#334155}
+[data-theme="dark"] .metro-dot{background:#0f1726;border-color:#6b93de}
+[data-theme="dark"] .metro-stop.passed .metro-dot{border-color:#475569}
+[data-theme="dark"] .metro-stop.canceled .metro-dot{background:#2a1517;border-color:#b91c1c}
+[data-theme="dark"] .metro-station{color:#e2e8f0}
+[data-theme="dark"] .metro-time{color:#94a3b8}
+[data-theme="dark"] .metro-stop.current .metro-station,
+[data-theme="dark"] .metro-stop.current .metro-time{color:#fcd34d}
+[data-theme="dark"] .metro-stop.canceled .metro-station a,
+[data-theme="dark"] .metro-stop.canceled .metro-station a:hover{color:#f87171}
+[data-theme="dark"] .goto-station{color:#7fa6ee}
+[data-theme="dark"] .goto-station:hover{color:#a9c4f5}
+[data-theme="dark"] .stop-delay{background:#3b1519;color:#fca5a5}
+[data-theme="dark"] .stop-canceled{background:#3b1519;color:#fca5a5;border-color:#7f1d1d}
+[data-theme="dark"] .stop-terminus{background:#33200f;border-color:#7c2d12;color:#fdba74}
+[data-theme="dark"] .stop-connection,
+[data-theme="dark"] .next-stop-badge{background:#182a4d;color:#93b4ef}
+[data-theme="dark"] .train-here{background:#0f2e22;color:#6ee7b7;border-color:#14532d}
+[data-theme="dark"] .train-passed{background:#1e293b;color:#94a3b8}
+[data-theme="dark"] .metro-transit-text{color:#93b4ef;background:#142039;border-color:#2b4a85}
+[data-theme="dark"] .train-composition{background:#0f1726;border-color:#1f2937}
+
+/* Bandeaux, perturbations, messages */
+[data-theme="dark"] .banner{background:#2a2410;border-left-color:#b8902a;color:#e8cf8a}
+[data-theme="dark"] .error{background:#3b1519;color:#fca5a5}
+[data-theme="dark"] .success{background:#0f2e22;color:#86efac}
+[data-theme="dark"] .spinner{border-color:rgba(255,255,255,0.1);border-top-color:#6b93de}
+[data-theme="dark"] .load-more-spinner{color:#94a3b8}
+[data-theme="dark"] .load-more-end{color:#64748b}
+[data-theme="dark"] .disturbance-close{color:#d4b25a}
+[data-theme="dark"] .disturbance-close:hover{background:rgba(212,178,90,0.15)}
+[data-theme="dark"] .disturbance-item{border-top-color:rgba(212,178,90,0.18)}
+[data-theme="dark"] .disturbance-badge{background:#3d3112;color:#e8cf8a}
+[data-theme="dark"] .disturbance-item.planned .disturbance-badge{background:#0f2e22;color:#86efac}
+[data-theme="dark"] .disturbance-link,
+[data-theme="dark"] .disturbance-summary-toggle{color:#e8cf8a}
+[data-theme="dark"] .disturbance-muted{background:#1e293b;color:#94a3b8}
+[data-theme="dark"] .disturbance-muted:hover{background:#273449}
+[data-theme="dark"] .cancel-banner{background:#2a1517;border-color:#7f1d1d;border-left-color:#dc2626;color:#fecaca}
+[data-theme="dark"] .cancel-banner-sub{color:#fca5a5}
+[data-theme="dark"] .cancel-banner.partial{background:#2a1f14;border-color:#7c2d12;border-left-color:#ea580c;color:#fed7aa}
+[data-theme="dark"] .cancel-banner.partial .cancel-banner-sub{color:#fdba74}
+[data-theme="dark"] .debug-raw{color:#94a3b8}
+[data-theme="dark"] .debug-raw pre{background:#1e293b}
+[data-theme="dark"] footer{color:#64748b}
+
+/* Liste déroulante des gares */
+[data-theme="dark"] .station-dropdown{background:#1e293b;color:#e2e8f0;border-color:#334155;box-shadow:0 8px 20px rgba(0,0,0,0.5)}
+[data-theme="dark"] .station-option{border-bottom-color:#273449}
+[data-theme="dark"] .station-option:hover,
+[data-theme="dark"] .station-option.active{background:#273449}
+[data-theme="dark"] .station-option mark{background:#854d0e;color:#fef3c7}
+[data-theme="dark"] .station-option.disabled{background:#172033;color:#64748b}
+[data-theme="dark"] .station-dropdown::-webkit-scrollbar-thumb{background:#334155}

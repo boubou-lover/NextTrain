@@ -1,4 +1,4 @@
 {
-  "version": "1.5.0",
-  "notes": "Affluence en 3 pictos (liste + détail par arrêt), alerte de changement de voie (iRail + détection entre rafraîchissements)"
+  "version": "1.6.0",
+  "notes": "Thème sombre (automatique selon le système + bouton 🌙/☀️), affluence en 3 pictos, alerte de changement de voie"
 }
